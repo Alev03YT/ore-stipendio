@@ -1,5 +1,5 @@
-import jsPDF from "jspdf";
 import { useEffect, useMemo, useRef, useState } from "react";
+import jsPDF from "jspdf";
 
 // Chart
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from "chart.js";
@@ -233,6 +233,9 @@ const I18N = {
     tip: "Suggerimento: aggiungi alla Home per usarla come app.",
     noDataMonth: "Nessun dato per questo mese.",
     eurosPerDay: "€ per giorno",
+    pdf: "PDF",
+    pdfTitle: "Riepilogo mensile",
+    pdfDetails: "Dettaglio giorni",
   },
   en: {
     appName: "Hours & Pay",
@@ -268,6 +271,9 @@ const I18N = {
     tip: "Tip: add to Home Screen to use it like an app.",
     noDataMonth: "No data for this month.",
     eurosPerDay: "€ per day",
+    pdf: "PDF",
+    pdfTitle: "Monthly summary",
+    pdfDetails: "Daily details",
   },
 };
 
@@ -421,56 +427,6 @@ export default function App() {
         days[e.date] = (days[e.date] || 0) + e.pay;
       }
     });
-    const exportPDF = () => {
-  const doc = new jsPDF();
-
-  const title = lang === "it" ? "Riepilogo mensile" : "Monthly summary";
-  doc.setFontSize(16);
-  doc.text(`${title} - ${currentMonth}`, 14, 18);
-
-  doc.setFontSize(11);
-  const email = user?.email ? user.email : (lang === "it" ? "Non loggato" : "Not logged in");
-  doc.text(`Email: ${email}`, 14, 26);
-
-  doc.text(`${t.monthHours}: ${fmt2(monthTotals.hours)}`, 14, 36);
-  doc.text(`${t.monthPay}: € ${fmt2(monthTotals.pay)}`, 14, 44);
-  doc.text(`${t.projection}: € ${fmt2(monthTotals.projection)}`, 14, 52);
-
-  doc.text(`${t.overtime}: ${settings.overtimeThresholdHours}h, x${settings.overtimeMultiplier}`, 14, 62);
-
-  // Tabella righe (semplice, senza plugin)
-  let y = 74;
-  doc.setFontSize(12);
-  doc.text(lang === "it" ? "Dettaglio giorni" : "Daily details", 14, y);
-  y += 8;
-
-  doc.setFontSize(10);
-  doc.text(lang === "it" ? "Data" : "Date", 14, y);
-  doc.text(lang === "it" ? "Lavoro" : "Job", 50, y);
-  doc.text("h", 120, y);
-  doc.text("€", 140, y);
-  y += 6;
-
-  const monthRows = entriesWithComputed
-    .filter((e) => monthKey(e.date) === currentMonth)
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  for (const e of monthRows) {
-    if (y > 285) {
-      doc.addPage();
-      y = 20;
-    }
-    const jobName = jobsById[e.jobId]?.name || "-";
-    doc.text(String(e.date), 14, y);
-    doc.text(String(jobName).slice(0, 22), 50, y);
-    doc.text(fmt2(e.hours), 120, y);
-    doc.text(fmt2(e.pay), 140, y);
-    y += 6;
-  }
-
-  const filename = `ore-stipendio_${currentMonth}.pdf`;
-  doc.save(filename);
-};
 
     const labels = Object.keys(days).sort();
     const values = labels.map((d) => days[d]);
@@ -485,6 +441,53 @@ export default function App() {
       ],
     };
   }, [entriesWithComputed, currentMonth, t.eurosPerDay]);
+
+  const exportPDF = () => {
+    const pdf = new jsPDF();
+
+    pdf.setFontSize(16);
+    pdf.text(`${t.pdfTitle} - ${currentMonth}`, 14, 18);
+
+    pdf.setFontSize(11);
+    const email = user?.email ? user.email : lang === "it" ? "Non loggato" : "Not logged in";
+    pdf.text(`Email: ${email}`, 14, 26);
+
+    pdf.text(`${t.monthHours}: ${fmt2(monthTotals.hours)}`, 14, 36);
+    pdf.text(`${t.monthPay}: € ${fmt2(monthTotals.pay)}`, 14, 44);
+    pdf.text(`${t.projection}: € ${fmt2(monthTotals.projection)}`, 14, 52);
+    pdf.text(`${t.overtime}: ${settings.overtimeThresholdHours}h, x${settings.overtimeMultiplier}`, 14, 62);
+
+    let y = 74;
+    pdf.setFontSize(12);
+    pdf.text(t.pdfDetails, 14, y);
+    y += 8;
+
+    pdf.setFontSize(10);
+    pdf.text(lang === "it" ? "Data" : "Date", 14, y);
+    pdf.text(lang === "it" ? "Lavoro" : "Job", 50, y);
+    pdf.text("h", 120, y);
+    pdf.text("€", 140, y);
+    y += 6;
+
+    const monthRows = entriesWithComputed
+      .filter((e) => monthKey(e.date) === currentMonth)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    for (const e of monthRows) {
+      if (y > 285) {
+        pdf.addPage();
+        y = 20;
+      }
+      const jobName = jobsById[e.jobId]?.name || "-";
+      pdf.text(String(e.date), 14, y);
+      pdf.text(String(jobName).slice(0, 22), 50, y);
+      pdf.text(fmt2(e.hours), 120, y);
+      pdf.text(fmt2(e.pay), 140, y);
+      y += 6;
+    }
+
+    pdf.save(`ore-stipendio_${currentMonth}.pdf`);
+  };
 
   const loginGoogle = async () => {
     try {
@@ -585,24 +588,28 @@ export default function App() {
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-  <Button variant="secondary" onClick={exportPDF}>PDF</Button>
+            <Button variant="secondary" onClick={exportPDF}>
+              {t.pdf}
+            </Button>
 
-  <select
-    value={lang}
-    onChange={(e) => setLang(e.target.value)}
-    style={{ height: 42, borderRadius: 14, border: "1px solid rgba(0,0,0,0.12)", padding: "0 10px" }}
-  >
-    <option value="it">IT</option>
-    <option value="en">EN</option>
-  </select>
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value)}
+              style={{ height: 42, borderRadius: 14, border: "1px solid rgba(0,0,0,0.12)", padding: "0 10px" }}
+            >
+              <option value="it">IT</option>
+              <option value="en">EN</option>
+            </select>
 
-  {user ? (
-    <Button variant="secondary" onClick={logout}>{t.signOut}</Button>
-  ) : (
-    <Button onClick={loginGoogle}>{t.signIn}</Button>
-  )}
-</div>
+            {user ? (
+              <Button variant="secondary" onClick={logout}>
+                {t.signOut}
+              </Button>
+            ) : (
+              <Button onClick={loginGoogle}>{t.signIn}</Button>
+            )}
+          </div>
+        </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginTop: 14 }}>
           <Card>
@@ -629,13 +636,7 @@ export default function App() {
 
         {/* Grafico */}
         <div style={{ marginTop: 14 }}>
-          <Card>
-            {dailyData.labels.length ? (
-              <Bar data={dailyData} />
-            ) : (
-              <div style={{ opacity: 0.75 }}>{t.noDataMonth}</div>
-            )}
-          </Card>
+          <Card>{dailyData.labels.length ? <Bar data={dailyData} /> : <div style={{ opacity: 0.75 }}>{t.noDataMonth}</div>}</Card>
         </div>
 
         <div style={{ marginTop: 14 }}>
@@ -644,11 +645,7 @@ export default function App() {
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.date}</div>
-                  <Input
-                    type="date"
-                    value={draft.date}
-                    onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
-                  />
+                  <Input type="date" value={draft.date} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
                 </div>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.job}</div>
@@ -688,9 +685,7 @@ export default function App() {
                 ))}
 
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <Button variant="secondary" onClick={addBlock}>
-                    {t.addBlock}
-                  </Button>
+                  <Button variant="secondary" onClick={addBlock}>{t.addBlock}</Button>
                   <Button onClick={active ? stopTimer : startTimer}>{active ? "Stop" : "Start"}</Button>
                   {active ? <div style={{ fontSize: 14, opacity: 0.85 }}>⏱ {live}</div> : null}
                 </div>
@@ -731,9 +726,7 @@ export default function App() {
                           <td style={{ padding: "10px 0" }}>{fmt2(e.hours)}</td>
                           <td style={{ padding: "10px 0" }}>€ {fmt2(e.pay)}</td>
                           <td style={{ padding: "10px 0", textAlign: "right" }}>
-                            <Button variant="secondary" onClick={() => deleteEntry(e.id)}>
-                              {t.delete}
-                            </Button>
+                            <Button variant="secondary" onClick={() => deleteEntry(e.id)}>{t.delete}</Button>
                           </td>
                         </tr>
                       ))}
@@ -749,37 +742,18 @@ export default function App() {
               <div style={{ fontWeight: 900, marginBottom: 10 }}>{t.newJob}</div>
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr auto" }}>
                 <Input value={newJob.name} onChange={(e) => setNewJob((v) => ({ ...v, name: e.target.value }))} placeholder={t.name} />
-                <Input
-                  type="number"
-                  value={newJob.rate}
-                  onChange={(e) => setNewJob((v) => ({ ...v, rate: e.target.value }))}
-                  placeholder={t.rate}
-                />
+                <Input type="number" value={newJob.rate} onChange={(e) => setNewJob((v) => ({ ...v, rate: e.target.value }))} placeholder={t.rate} />
                 <Button onClick={addJob}>{t.add}</Button>
               </div>
 
               <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
                 {jobs.map((j) => (
-                  <div
-                    key={j.id}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      alignItems: "center",
-                      padding: 10,
-                      borderRadius: 14,
-                      border: "1px solid rgba(0,0,0,0.06)",
-                      background: "rgba(255,255,255,0.65)",
-                    }}
-                  >
+                  <div key={j.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: 10, borderRadius: 14, border: "1px solid rgba(0,0,0,0.06)", background: "rgba(255,255,255,0.65)" }}>
                     <div>
                       <div style={{ fontWeight: 900 }}>{j.name}</div>
                       <div style={{ fontSize: 12, opacity: 0.8 }}>€ {Number(j.rate).toFixed(2)}/h</div>
                     </div>
-                    <Button variant="secondary" onClick={() => setDraft((d) => ({ ...d, jobId: j.id }))}>
-                      {t.today}
-                    </Button>
+                    <Button variant="secondary" onClick={() => setDraft((d) => ({ ...d, jobId: j.id }))}>{t.today}</Button>
                   </div>
                 ))}
               </div>
@@ -791,22 +765,11 @@ export default function App() {
               <div style={{ display: "grid", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.threshold}</div>
-                  <Input
-                    type="number"
-                    value={settings.overtimeThresholdHours}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, overtimeThresholdHours: Number(e.target.value || 0) }))
-                    }
-                  />
+                  <Input type="number" value={settings.overtimeThresholdHours} onChange={(e) => setSettings((s) => ({ ...s, overtimeThresholdHours: Number(e.target.value || 0) }))} />
                 </div>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.multiplier}</div>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={settings.overtimeMultiplier}
-                    onChange={(e) => setSettings((s) => ({ ...s, overtimeMultiplier: Number(e.target.value || 1) }))}
-                  />
+                  <Input type="number" step="0.01" value={settings.overtimeMultiplier} onChange={(e) => setSettings((s) => ({ ...s, overtimeMultiplier: Number(e.target.value || 1) }))} />
                 </div>
               </div>
             </Card>
@@ -815,17 +778,7 @@ export default function App() {
       </div>
 
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 14, display: "flex", justifyContent: "center" }}>
-        <div
-          style={{
-            width: "min(520px, calc(100% - 32px))",
-            background: "rgba(255,255,255,0.85)",
-            border: "1px solid rgba(0,0,0,0.06)",
-            borderRadius: 20,
-            padding: 8,
-            display: "flex",
-            gap: 8,
-          }}
-        >
+        <div style={{ width: "min(520px, calc(100% - 32px))", background: "rgba(255,255,255,0.85)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 20, padding: 8, display: "flex", gap: 8 }}>
           <NavBtn active={tab === "today"} onClick={() => setTab("today")} label={t.today} />
           <NavBtn active={tab === "log"} onClick={() => setTab("log")} label={t.log} />
           <NavBtn active={tab === "jobs"} onClick={() => setTab("jobs")} label={t.jobs} />
