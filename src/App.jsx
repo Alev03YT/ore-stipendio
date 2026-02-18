@@ -1,6 +1,8 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+
+// Chart
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from "chart.js";
 import { Bar } from "react-chartjs-2";
-import { useEffect, useMemo, useRef, useState } from "react";
 
 // Firebase
 import { initializeApp } from "firebase/app";
@@ -13,14 +15,10 @@ import {
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
+
 /** ✅ tua config Firebase */
 const firebaseConfig = {
   apiKey: "AIzaSyBNmY-VtIBYjN3rCIrWWrGlLVgIN9F7d2U",
@@ -117,13 +115,14 @@ const monthKey = (iso) => iso.slice(0, 7);
 
 const mondayOfWeek = (isoDate) => {
   const d = new Date(`${isoDate}T00:00:00`);
-  const day = d.getDay();
-  const diff = (day === 0 ? -6 : 1) - day;
+  const day = d.getDay(); // 0 dom .. 6 sab
+  const diff = (day === 0 ? -6 : 1) - day; // lunedì
   d.setDate(d.getDate() + diff);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 };
 const weekKey = (isoDate) => mondayOfWeek(isoDate);
 
+/* Straordinari settimanali: oltre soglia (40h) * moltiplicatore (1.25x) */
 function computeWeeklyPay(entries, jobsById, settings) {
   const { overtimeThresholdHours, overtimeMultiplier } = settings;
 
@@ -231,6 +230,8 @@ const I18N = {
     invalid: "Controlla orari e campi.",
     empty: "Nessun dato ancora.",
     tip: "Suggerimento: aggiungi alla Home per usarla come app.",
+    noDataMonth: "Nessun dato per questo mese.",
+    eurosPerDay: "€ per giorno",
   },
   en: {
     appName: "Hours & Pay",
@@ -264,6 +265,8 @@ const I18N = {
     invalid: "Check times and fields.",
     empty: "No data yet.",
     tip: "Tip: add to Home Screen to use it like an app.",
+    noDataMonth: "No data for this month.",
+    eurosPerDay: "€ per day",
   },
 };
 
@@ -286,7 +289,7 @@ export default function App() {
     notes: "",
   });
 
-  const [active, setActive] = useState(null);
+  const [active, setActive] = useState(null); // {blockIndex, startedAt}
   const timerRef = useRef(null);
   const [, forceTick] = useState(0);
 
@@ -354,11 +357,7 @@ export default function App() {
     saveDebounce.current = setTimeout(async () => {
       try {
         setCloudStatus("syncing");
-        await setDoc(
-          cloudDocRef,
-          { lang, jobs, entries, settings, updatedAt: serverTimestamp() },
-          { merge: true }
-        );
+        await setDoc(cloudDocRef, { lang, jobs, entries, settings, updatedAt: serverTimestamp() }, { merge: true });
         setCloudStatus("synced");
       } catch {
         setCloudStatus("local");
@@ -375,6 +374,7 @@ export default function App() {
   }, [active]);
 
   const jobsById = useMemo(() => Object.fromEntries(jobs.map((j) => [j.id, j])), [jobs]);
+
   const computed = useMemo(() => computeWeeklyPay(entries, jobsById, settings), [entries, jobsById, settings]);
 
   const entriesWithComputed = useMemo(() => {
@@ -389,63 +389,11 @@ export default function App() {
 
   const currentMonth = todayISO().slice(0, 7);
 
-const monthTotals = useMemo(() => {
-  const list = entriesWithComputed.filter((e) => monthKey(e.date) === currentMonth);
-  const hours = list.reduce((s, e) => s + e.hours, 0);
-  const pay = list.reduce((s, e) => s + e.pay, 0);
+  const monthTotals = useMemo(() => {
+    const list = entriesWithComputed.filter((e) => monthKey(e.date) === currentMonth);
+    const hours = list.reduce((s, e) => s + e.hours, 0);
+    const pay = list.reduce((s, e) => s + e.pay, 0);
 
-  const workedDays = new Set(list.map((e) => e.date)).size;
-  const avgPerDay = workedDays ? pay / workedDays : 0;
-
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const last = new Date(year, month + 1, 0).getDate();
-
-  let remainingWeekdays = 0;
-  for (let d = now.getDate() + 1; d <= last; d++) {
-    const dd = new Date(year, month, d);
-    const wd = dd.getDay();
-    if (wd !== 0 && wd !== 6) remainingWeekdays++;
-  }
-
-  const projection = pay + avgPerDay * remainingWeekdays;
-  return { hours, pay, projection };
-}, [entriesWithComputed, currentMonth]);
-
-  const dailyData = useMemo(() => {
-  const days = {};
-
-  entriesWithComputed.forEach((e) => {
-    if (monthKey(e.date) === currentMonth) {
-      days[e.date] = (days[e.date] || 0) + e.pay;
-    }
-  });
-
-  const labels = Object.keys(days).sort();
-  const values = labels.map((d) => days[d]);
-
-  return {
-    labels,
-    datasets: [
-      {
-        label: lang === "it" ? "€ per giorno" : "€ per day",
-        data: values,
-      },
-    ],
-  };
-}, [entriesWithComputed, currentMonth, lang]);
-
-  return {
-    labels,
-    datasets: [
-      {
-        label: "€ per giorno",
-        data: values,
-      },
-    ],
-  };
-}, [entriesWithComputed, currentMonth]);  
     const workedDays = new Set(list.map((e) => e.date)).size;
     const avgPerDay = workedDays ? pay / workedDays : 0;
 
@@ -453,15 +401,39 @@ const monthTotals = useMemo(() => {
     const year = now.getFullYear();
     const month = now.getMonth();
     const last = new Date(year, month + 1, 0).getDate();
+
     let remainingWeekdays = 0;
     for (let d = now.getDate() + 1; d <= last; d++) {
       const dd = new Date(year, month, d);
       const wd = dd.getDay();
       if (wd !== 0 && wd !== 6) remainingWeekdays++;
     }
+
     const projection = pay + avgPerDay * remainingWeekdays;
     return { hours, pay, projection };
-  }, [entriesWithComputed]);
+  }, [entriesWithComputed, currentMonth]);
+
+  const dailyData = useMemo(() => {
+    const days = {};
+    entriesWithComputed.forEach((e) => {
+      if (monthKey(e.date) === currentMonth) {
+        days[e.date] = (days[e.date] || 0) + e.pay;
+      }
+    });
+
+    const labels = Object.keys(days).sort();
+    const values = labels.map((d) => days[d]);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: t.eurosPerDay,
+          data: values,
+        },
+      ],
+    };
+  }, [entriesWithComputed, currentMonth, t.eurosPerDay]);
 
   const loginGoogle = async () => {
     try {
@@ -470,6 +442,7 @@ const monthTotals = useMemo(() => {
       await signInWithRedirect(auth, provider);
     }
   };
+
   const logout = async () => {
     try {
       await signOut(auth);
@@ -483,7 +456,8 @@ const monthTotals = useMemo(() => {
   const startTimer = () => {
     if (active) return;
     const now = new Date();
-    const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const hhmm = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+
     setDraft((d) => {
       const blocks = [...d.blocks];
       let bi = blocks.findIndex((b) => !b.start || (b.start && b.end));
@@ -496,10 +470,12 @@ const monthTotals = useMemo(() => {
       return { ...d, blocks };
     });
   };
+
   const stopTimer = () => {
     if (!active) return;
     const now = new Date();
-    const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const hhmm = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+
     setDraft((d) => {
       const blocks = [...d.blocks];
       const bi = active.blockIndex;
@@ -538,13 +514,11 @@ const monthTotals = useMemo(() => {
   };
 
   const statusLabel = cloudStatus === "synced" ? t.synced : t.local;
+
   const live = (() => {
     if (!active) return null;
     const s = Math.floor((Date.now() - active.startedAt.getTime()) / 1000);
-    const hh = String(Math.floor(s / 3600)).padStart(2, "0");
-    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
-    const ss = String(s % 60).padStart(2, "0");
-    return `${hh}:${mm}:${ss}`;
+    return `${pad2(Math.floor(s / 3600))}:${pad2(Math.floor((s % 3600) / 60))}:${pad2(s % 60)}`;
   })();
 
   return (
@@ -570,7 +544,9 @@ const monthTotals = useMemo(() => {
             </select>
 
             {user ? (
-              <Button variant="secondary" onClick={logout}>{t.signOut}</Button>
+              <Button variant="secondary" onClick={logout}>
+                {t.signOut}
+              </Button>
             ) : (
               <Button onClick={loginGoogle}>{t.signIn}</Button>
             )}
@@ -586,28 +562,42 @@ const monthTotals = useMemo(() => {
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.monthPay}</div>
             <div style={{ fontSize: 22, fontWeight: 900 }}>€ {fmt2(monthTotals.pay)}</div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>{t.projection}: € {fmt2(monthTotals.projection)}</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              {t.projection}: € {fmt2(monthTotals.projection)}
+            </div>
           </Card>
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.overtime}</div>
             <div style={{ fontSize: 12, opacity: 0.85 }}>
-              {t.threshold}: <b>{settings.overtimeThresholdHours}</b>h<br/>
+              {t.threshold}: <b>{settings.overtimeThresholdHours}</b>h
+              <br />
               {t.multiplier}: <b>{settings.overtimeMultiplier}</b>x
             </div>
           </Card>
         </div>
-<div style={{ marginTop: 14 }}>
-  <Card>
-    <Bar data={dailyData} />
-  </Card>
-</div>
+
+        {/* Grafico */}
+        <div style={{ marginTop: 14 }}>
+          <Card>
+            {dailyData.labels.length ? (
+              <Bar data={dailyData} />
+            ) : (
+              <div style={{ opacity: 0.75 }}>{t.noDataMonth}</div>
+            )}
+          </Card>
+        </div>
+
         <div style={{ marginTop: 14 }}>
           {tab === "today" && (
             <Card>
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.date}</div>
-                  <Input type="date" value={draft.date} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
+                  <Input
+                    type="date"
+                    value={draft.date}
+                    onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.job}</div>
@@ -647,14 +637,16 @@ const monthTotals = useMemo(() => {
                 ))}
 
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <Button variant="secondary" onClick={addBlock}>{t.addBlock}</Button>
+                  <Button variant="secondary" onClick={addBlock}>
+                    {t.addBlock}
+                  </Button>
                   <Button onClick={active ? stopTimer : startTimer}>{active ? "Stop" : "Start"}</Button>
                   {active ? <div style={{ fontSize: 14, opacity: 0.85 }}>⏱ {live}</div> : null}
                 </div>
 
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.notes}</div>
-                  <Input value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} placeholder={t.notes} />
+                  <Input value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -688,7 +680,9 @@ const monthTotals = useMemo(() => {
                           <td style={{ padding: "10px 0" }}>{fmt2(e.hours)}</td>
                           <td style={{ padding: "10px 0" }}>€ {fmt2(e.pay)}</td>
                           <td style={{ padding: "10px 0", textAlign: "right" }}>
-                            <Button variant="secondary" onClick={() => deleteEntry(e.id)}>{t.delete}</Button>
+                            <Button variant="secondary" onClick={() => deleteEntry(e.id)}>
+                              {t.delete}
+                            </Button>
                           </td>
                         </tr>
                       ))}
@@ -704,18 +698,37 @@ const monthTotals = useMemo(() => {
               <div style={{ fontWeight: 900, marginBottom: 10 }}>{t.newJob}</div>
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr auto" }}>
                 <Input value={newJob.name} onChange={(e) => setNewJob((v) => ({ ...v, name: e.target.value }))} placeholder={t.name} />
-                <Input type="number" value={newJob.rate} onChange={(e) => setNewJob((v) => ({ ...v, rate: e.target.value }))} placeholder={t.rate} />
+                <Input
+                  type="number"
+                  value={newJob.rate}
+                  onChange={(e) => setNewJob((v) => ({ ...v, rate: e.target.value }))}
+                  placeholder={t.rate}
+                />
                 <Button onClick={addJob}>{t.add}</Button>
               </div>
 
               <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
                 {jobs.map((j) => (
-                  <div key={j.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: 10, borderRadius: 14, border: "1px solid rgba(0,0,0,0.06)", background: "rgba(255,255,255,0.65)" }}>
+                  <div
+                    key={j.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      alignItems: "center",
+                      padding: 10,
+                      borderRadius: 14,
+                      border: "1px solid rgba(0,0,0,0.06)",
+                      background: "rgba(255,255,255,0.65)",
+                    }}
+                  >
                     <div>
                       <div style={{ fontWeight: 900 }}>{j.name}</div>
                       <div style={{ fontSize: 12, opacity: 0.8 }}>€ {Number(j.rate).toFixed(2)}/h</div>
                     </div>
-                    <Button variant="secondary" onClick={() => setDraft((d) => ({ ...d, jobId: j.id }))}>{t.today}</Button>
+                    <Button variant="secondary" onClick={() => setDraft((d) => ({ ...d, jobId: j.id }))}>
+                      {t.today}
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -727,11 +740,22 @@ const monthTotals = useMemo(() => {
               <div style={{ display: "grid", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.threshold}</div>
-                  <Input type="number" value={settings.overtimeThresholdHours} onChange={(e) => setSettings((s) => ({ ...s, overtimeThresholdHours: Number(e.target.value || 0) }))} />
+                  <Input
+                    type="number"
+                    value={settings.overtimeThresholdHours}
+                    onChange={(e) =>
+                      setSettings((s) => ({ ...s, overtimeThresholdHours: Number(e.target.value || 0) }))
+                    }
+                  />
                 </div>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.multiplier}</div>
-                  <Input type="number" step="0.01" value={settings.overtimeMultiplier} onChange={(e) => setSettings((s) => ({ ...s, overtimeMultiplier: Number(e.target.value || 1) }))} />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={settings.overtimeMultiplier}
+                    onChange={(e) => setSettings((s) => ({ ...s, overtimeMultiplier: Number(e.target.value || 1) }))}
+                  />
                 </div>
               </div>
             </Card>
@@ -740,7 +764,17 @@ const monthTotals = useMemo(() => {
       </div>
 
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 14, display: "flex", justifyContent: "center" }}>
-        <div style={{ width: "min(520px, calc(100% - 32px))", background: "rgba(255,255,255,0.85)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 20, padding: 8, display: "flex", gap: 8 }}>
+        <div
+          style={{
+            width: "min(520px, calc(100% - 32px))",
+            background: "rgba(255,255,255,0.85)",
+            border: "1px solid rgba(0,0,0,0.06)",
+            borderRadius: 20,
+            padding: 8,
+            display: "flex",
+            gap: 8,
+          }}
+        >
           <NavBtn active={tab === "today"} onClick={() => setTab("today")} label={t.today} />
           <NavBtn active={tab === "log"} onClick={() => setTab("log")} label={t.log} />
           <NavBtn active={tab === "jobs"} onClick={() => setTab("jobs")} label={t.jobs} />
