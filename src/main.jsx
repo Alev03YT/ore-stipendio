@@ -7,7 +7,7 @@ function ErrorScreen({ error }) {
   return (
     <div style={{ padding: 16, fontFamily: "system-ui", whiteSpace: "pre-wrap" }}>
       <h2 style={{ marginTop: 0 }}>Errore app</h2>
-      <p>Incolla questo messaggio qui in chat:</p>
+      <p>Copia e incolla questo messaggio qui in chat:</p>
       <pre style={{ background: "#111", color: "#fff", padding: 12, borderRadius: 12, overflowX: "auto" }}>
         {String(error)}
       </pre>
