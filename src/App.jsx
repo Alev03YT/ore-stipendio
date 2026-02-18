@@ -20,7 +20,7 @@ import {
   setDoc,
   serverTimestamp,
 } from "firebase/firestore";
-
+ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 /** ✅ tua config Firebase */
 const firebaseConfig = {
   apiKey: "AIzaSyBNmY-VtIBYjN3rCIrWWrGlLVgIN9F7d2U",
@@ -392,7 +392,28 @@ export default function App() {
     const list = entriesWithComputed.filter((e) => monthKey(e.date) === currentMonth);
     const hours = list.reduce((s, e) => s + e.hours, 0);
     const pay = list.reduce((s, e) => s + e.pay, 0);
+const dailyData = useMemo(() => {
+  const days = {};
 
+  entriesWithComputed.forEach(e => {
+    if (monthKey(e.date) === currentMonth) {
+      days[e.date] = (days[e.date] || 0) + e.pay;
+    }
+  });
+
+  const labels = Object.keys(days).sort();
+  const values = labels.map(d => days[d]);
+
+  return {
+    labels,
+    datasets: [
+      {
+        label: "€ per giorno",
+        data: values,
+      },
+    ],
+  };
+}, [entriesWithComputed, currentMonth]);  
     const workedDays = new Set(list.map((e) => e.date)).size;
     const avgPerDay = workedDays ? pay / workedDays : 0;
 
@@ -543,7 +564,11 @@ export default function App() {
             </div>
           </Card>
         </div>
-
+<div style={{ marginTop: 14 }}>
+  <Card>
+    <Bar data={dailyData} />
+  </Card>
+</div>
         <div style={{ marginTop: 14 }}>
           {tab === "today" && (
             <Card>
