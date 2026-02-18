@@ -1,42 +1,50 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import "./index.css";
 
-function ErrorScreen({ error }) {
-  return (
-    <div style={{ padding: 16, fontFamily: "system-ui", whiteSpace: "pre-wrap" }}>
-      <h2 style={{ marginTop: 0 }}>Errore app</h2>
-      <p>Copia e incolla questo messaggio qui in chat:</p>
-      <pre style={{ background: "#111", color: "#fff", padding: 12, borderRadius: 12, overflowX: "auto" }}>
-        {String(error)}
-      </pre>
-    </div>
-  );
-}
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
 
-function Root() {
-  const [error, setError] = useState(null);
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
 
-  useEffect(() => {
-    const onError = (e) => setError(e?.error?.stack || e?.message || String(e));
-    const onRejection = (e) => setError(e?.reason?.stack || e?.reason?.message || String(e?.reason || e));
+  componentDidCatch(error, info) {
+    // utile per debug, ma su mobile non serve
+    console.error("ErrorBoundary:", error, info);
+  }
 
-    window.addEventListener("error", onError);
-    window.addEventListener("unhandledrejection", onRejection);
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 16, fontFamily: "system-ui", whiteSpace: "pre-wrap" }}>
+          <h2 style={{ marginTop: 0 }}>Errore app</h2>
+          <p>Copia e incolla questo messaggio qui in chat:</p>
+          <pre
+            style={{
+              background: "#111",
+              color: "#fff",
+              padding: 12,
+              borderRadius: 12,
+              overflowX: "auto",
+            }}
+          >
+            {String(this.state.error?.stack || this.state.error)}
+          </pre>
+        </div>
+      );
+    }
 
-    return () => {
-      window.removeEventListener("error", onError);
-      window.removeEventListener("unhandledrejection", onRejection);
-    };
-  }, []);
-
-  if (error) return <ErrorScreen error={error} />;
-  return <App />;
+    return this.props.children;
+  }
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <Root />
-  </React.StrictMode>
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
 );
