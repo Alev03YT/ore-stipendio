@@ -585,25 +585,24 @@ export default function App() {
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <Button variant="secondary" onClick={exportPDF}>PDF</Button>
-            <select
-              value={lang}
-              onChange={(e) => setLang(e.target.value)}
-              style={{ height: 42, borderRadius: 14, border: "1px solid rgba(0,0,0,0.12)", padding: "0 10px" }}
-            >
-              <option value="it">IT</option>
-              <option value="en">EN</option>
-            </select>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+  <Button variant="secondary" onClick={exportPDF}>PDF</Button>
 
-            {user ? (
-              <Button variant="secondary" onClick={logout}>
-                {t.signOut}
-              </Button>
-            ) : (
-              <Button onClick={loginGoogle}>{t.signIn}</Button>
-            )}
-          </div>
-        </div>
+  <select
+    value={lang}
+    onChange={(e) => setLang(e.target.value)}
+    style={{ height: 42, borderRadius: 14, border: "1px solid rgba(0,0,0,0.12)", padding: "0 10px" }}
+  >
+    <option value="it">IT</option>
+    <option value="en">EN</option>
+  </select>
+
+  {user ? (
+    <Button variant="secondary" onClick={logout}>{t.signOut}</Button>
+  ) : (
+    <Button onClick={loginGoogle}>{t.signIn}</Button>
+  )}
+</div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginTop: 14 }}>
           <Card>
