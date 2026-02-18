@@ -594,6 +594,8 @@ export default function App() {
               <option value="en">EN</option>
             </select>
 
+            <Button variant="secondary" onClick={exportPDF}>PDF</Button>
+
             {user ? (
               <Button variant="secondary" onClick={logout}>
                 {t.signOut}
