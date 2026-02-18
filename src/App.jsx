@@ -388,21 +388,53 @@ export default function App() {
   }, [entries, computed]);
 
   const currentMonth = todayISO().slice(0, 7);
-  const monthTotals = useMemo(() => {
-    const list = entriesWithComputed.filter((e) => monthKey(e.date) === currentMonth);
-    const hours = list.reduce((s, e) => s + e.hours, 0);
-    const pay = list.reduce((s, e) => s + e.pay, 0);
-const dailyData = useMemo(() => {
+
+const monthTotals = useMemo(() => {
+  const list = entriesWithComputed.filter((e) => monthKey(e.date) === currentMonth);
+  const hours = list.reduce((s, e) => s + e.hours, 0);
+  const pay = list.reduce((s, e) => s + e.pay, 0);
+
+  const workedDays = new Set(list.map((e) => e.date)).size;
+  const avgPerDay = workedDays ? pay / workedDays : 0;
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const last = new Date(year, month + 1, 0).getDate();
+
+  let remainingWeekdays = 0;
+  for (let d = now.getDate() + 1; d <= last; d++) {
+    const dd = new Date(year, month, d);
+    const wd = dd.getDay();
+    if (wd !== 0 && wd !== 6) remainingWeekdays++;
+  }
+
+  const projection = pay + avgPerDay * remainingWeekdays;
+  return { hours, pay, projection };
+}, [entriesWithComputed, currentMonth]);
+
+  const dailyData = useMemo(() => {
   const days = {};
 
-  entriesWithComputed.forEach(e => {
+  entriesWithComputed.forEach((e) => {
     if (monthKey(e.date) === currentMonth) {
       days[e.date] = (days[e.date] || 0) + e.pay;
     }
   });
 
   const labels = Object.keys(days).sort();
-  const values = labels.map(d => days[d]);
+  const values = labels.map((d) => days[d]);
+
+  return {
+    labels,
+    datasets: [
+      {
+        label: lang === "it" ? "€ per giorno" : "€ per day",
+        data: values,
+      },
+    ],
+  };
+}, [entriesWithComputed, currentMonth, lang]);
 
   return {
     labels,
