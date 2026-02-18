@@ -585,6 +585,7 @@ export default function App() {
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <Button variant="secondary" onClick={exportPDF}>PDF</Button>
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
@@ -593,8 +594,6 @@ export default function App() {
               <option value="it">IT</option>
               <option value="en">EN</option>
             </select>
-
-            <Button variant="secondary" onClick={exportPDF}>PDF</Button>
 
             {user ? (
               <Button variant="secondary" onClick={logout}>
