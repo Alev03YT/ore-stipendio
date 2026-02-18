@@ -421,6 +421,56 @@ export default function App() {
         days[e.date] = (days[e.date] || 0) + e.pay;
       }
     });
+    const exportPDF = () => {
+  const doc = new jsPDF();
+
+  const title = lang === "it" ? "Riepilogo mensile" : "Monthly summary";
+  doc.setFontSize(16);
+  doc.text(`${title} - ${currentMonth}`, 14, 18);
+
+  doc.setFontSize(11);
+  const email = user?.email ? user.email : (lang === "it" ? "Non loggato" : "Not logged in");
+  doc.text(`Email: ${email}`, 14, 26);
+
+  doc.text(`${t.monthHours}: ${fmt2(monthTotals.hours)}`, 14, 36);
+  doc.text(`${t.monthPay}: € ${fmt2(monthTotals.pay)}`, 14, 44);
+  doc.text(`${t.projection}: € ${fmt2(monthTotals.projection)}`, 14, 52);
+
+  doc.text(`${t.overtime}: ${settings.overtimeThresholdHours}h, x${settings.overtimeMultiplier}`, 14, 62);
+
+  // Tabella righe (semplice, senza plugin)
+  let y = 74;
+  doc.setFontSize(12);
+  doc.text(lang === "it" ? "Dettaglio giorni" : "Daily details", 14, y);
+  y += 8;
+
+  doc.setFontSize(10);
+  doc.text(lang === "it" ? "Data" : "Date", 14, y);
+  doc.text(lang === "it" ? "Lavoro" : "Job", 50, y);
+  doc.text("h", 120, y);
+  doc.text("€", 140, y);
+  y += 6;
+
+  const monthRows = entriesWithComputed
+    .filter((e) => monthKey(e.date) === currentMonth)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const e of monthRows) {
+    if (y > 285) {
+      doc.addPage();
+      y = 20;
+    }
+    const jobName = jobsById[e.jobId]?.name || "-";
+    doc.text(String(e.date), 14, y);
+    doc.text(String(jobName).slice(0, 22), 50, y);
+    doc.text(fmt2(e.hours), 120, y);
+    doc.text(fmt2(e.pay), 140, y);
+    y += 6;
+  }
+
+  const filename = `ore-stipendio_${currentMonth}.pdf`;
+  doc.save(filename);
+};
 
     const labels = Object.keys(days).sort();
     const values = labels.map((d) => days[d]);
