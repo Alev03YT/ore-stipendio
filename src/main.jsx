@@ -7,11 +7,11 @@ import "./index.css";
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, err: "" };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(err) {
+    return { hasError: true, err: String(err?.message || err) };
   }
 
   componentDidCatch(error, info) {
@@ -19,10 +19,8 @@ class ErrorBoundary extends React.Component {
   }
 
   handleReload = () => {
-    // Ricarica "pulita"
-    const url = new URL(window.location.href);
-    url.searchParams.set("reload", String(Date.now()));
-    window.location.replace(url.toString());
+    // hard reload
+    window.location.reload();
   };
 
   render() {
@@ -41,7 +39,7 @@ class ErrorBoundary extends React.Component {
         >
           <div
             style={{
-              maxWidth: 420,
+              maxWidth: 520,
               width: "100%",
               background: "white",
               borderRadius: 20,
@@ -53,8 +51,28 @@ class ErrorBoundary extends React.Component {
             <div style={{ fontSize: 40, marginBottom: 10 }}>⚠️</div>
             <h2 style={{ margin: 0, fontSize: 22 }}>Qualcosa è andato storto</h2>
             <p style={{ opacity: 0.7, fontSize: 14, marginTop: 10 }}>
-              Prova a ricaricare la pagina. Se il problema continua, riprova più tardi.
+              Prova a ricaricare la pagina.
+              <br />
+              Se continua, è quasi sempre cache/Service Worker.
             </p>
+
+            {this.state.err ? (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 12,
+                  background: "#f7f7f7",
+                  borderRadius: 14,
+                  fontSize: 12,
+                  textAlign: "left",
+                  maxHeight: 140,
+                  overflow: "auto",
+                }}
+              >
+                {this.state.err}
+              </div>
+            ) : null}
+
             <button
               onClick={this.handleReload}
               style={{
@@ -80,46 +98,38 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-/* -------- FIX "APP BUGGATA": disinstalla Service Worker vecchi + svuota cache --------
-   Se avevi già registrato sw.js, può tenere in cache file vecchi e rompere la UI.
-   Questo codice:
-   1) Unregister di TUTTI i SW
-   2) Cancella tutte le Cache Storage
-   3) Ricarica UNA volta sola con ?swfix=1
+/* -------- FIX "APP BUGGATA": DISATTIVA SW + PULISCI CACHE (una volta) --------
+   IMPORTANTISSIMO su GitHub Pages: se prima avevi sw.js, rimane attivo e ti serve roba vecchia.
 */
-async function cleanupOldServiceWorkersOnce() {
+(async () => {
   if (!("serviceWorker" in navigator)) return;
 
   const url = new URL(window.location.href);
-  if (url.searchParams.get("swfix") === "1") return;
+  const alreadyCleaned = url.searchParams.get("sw_clean") === "1";
 
   try {
     const regs = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(regs.map((r) => r.unregister()));
+    if (regs.length) await Promise.all(regs.map((r) => r.unregister()));
 
     if ("caches" in window) {
       const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
+      if (keys.length) await Promise.all(keys.map((k) => caches.delete(k)));
     }
 
-    url.searchParams.set("swfix", "1");
-    window.location.replace(url.toString());
+    if (!alreadyCleaned) {
+      url.searchParams.set("sw_clean", "1");
+      window.location.replace(url.toString());
+    }
   } catch (e) {
     console.warn("SW cleanup failed:", e);
   }
-}
-
-function renderApp() {
-  ReactDOM.createRoot(document.getElementById("root")).render(
-    <React.StrictMode>
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    </React.StrictMode>
-  );
-}
-
-(async () => {
-  await cleanupOldServiceWorkersOnce();
-  renderApp();
 })();
+
+/* -------- Render app -------- */
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  </React.StrictMode>
+);
