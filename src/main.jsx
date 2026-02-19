@@ -19,7 +19,10 @@ class ErrorBoundary extends React.Component {
   }
 
   handleReload = () => {
-    window.location.reload();
+    // Ricarica "pulita"
+    const url = new URL(window.location.href);
+    url.searchParams.set("reload", String(Date.now()));
+    window.location.replace(url.toString());
   };
 
   render() {
@@ -48,17 +51,10 @@ class ErrorBoundary extends React.Component {
             }}
           >
             <div style={{ fontSize: 40, marginBottom: 10 }}>⚠️</div>
-
-            <h2 style={{ margin: 0, fontSize: 22 }}>
-              Qualcosa è andato storto
-            </h2>
-
+            <h2 style={{ margin: 0, fontSize: 22 }}>Qualcosa è andato storto</h2>
             <p style={{ opacity: 0.7, fontSize: 14, marginTop: 10 }}>
-              Prova a ricaricare la pagina.
-              <br />
-              Se il problema continua, riprova più tardi.
+              Prova a ricaricare la pagina. Se il problema continua, riprova più tardi.
             </p>
-
             <button
               onClick={this.handleReload}
               style={{
@@ -84,18 +80,46 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-/* -------- Render app -------- */
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </React.StrictMode>
-);
-
-/*
-⚠️ IMPORTANTE:
-- NESSUN service worker
-- NESSUNA PWA
-Così eliminiamo completamente i bug di cache.
+/* -------- FIX "APP BUGGATA": disinstalla Service Worker vecchi + svuota cache --------
+   Se avevi già registrato sw.js, può tenere in cache file vecchi e rompere la UI.
+   Questo codice:
+   1) Unregister di TUTTI i SW
+   2) Cancella tutte le Cache Storage
+   3) Ricarica UNA volta sola con ?swfix=1
 */
+async function cleanupOldServiceWorkersOnce() {
+  if (!("serviceWorker" in navigator)) return;
+
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("swfix") === "1") return;
+
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((r) => r.unregister()));
+
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+
+    url.searchParams.set("swfix", "1");
+    window.location.replace(url.toString());
+  } catch (e) {
+    console.warn("SW cleanup failed:", e);
+  }
+}
+
+function renderApp() {
+  ReactDOM.createRoot(document.getElementById("root")).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+}
+
+(async () => {
+  await cleanupOldServiceWorkersOnce();
+  renderApp();
+})();
