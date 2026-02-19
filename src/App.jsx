@@ -49,7 +49,7 @@ function Button({ onClick, children, variant = "default", disabled, title }) {
   };
   const style =
     variant === "secondary"
-      ? { ...base, background: "rgba(255,255,255,0.85)" }
+      ? { ...base, background: "rgba(255,255,255,0.92)" }
       : variant === "ghost"
       ? { ...base, background: "transparent", border: "1px solid transparent" }
       : { ...base, background: "#111", color: "white", border: "1px solid #111" };
@@ -124,7 +124,7 @@ const mondayOfWeek = (isoDate) => {
 };
 const weekKey = (isoDate) => mondayOfWeek(isoDate);
 
-/* Straordinari settimanali: oltre soglia * moltiplicatore */
+/* Straordinari settimanali: oltre soglia (40h) * moltiplicatore (1.25x) */
 function computeWeeklyPay(entries, jobsById, settings) {
   const { overtimeThresholdHours, overtimeMultiplier } = settings;
 
@@ -171,7 +171,7 @@ function computeWeeklyPay(entries, jobsById, settings) {
     const overtimeHours = Math.max(0, totalHours - overtimeThresholdHours);
     let overtimeMinLeft = Math.round(overtimeHours * 60);
 
-    // Straordinario assegnato agli ultimi blocchi della settimana
+    // assegna gli straordinari agli ultimi blocchi della settimana
     const otMinByBlock = new Map();
     for (let i = arr.length - 1; i >= 0 && overtimeMinLeft > 0; i--) {
       const bl = arr[i];
@@ -220,6 +220,9 @@ const I18N = {
     saveDay: "Salva giornata",
     notes: "Note",
     delete: "Elimina",
+    edit: "Modifica",
+    save: "Salva",
+    cancel: "Annulla",
     monthHours: "Ore mese",
     monthPay: "Paga mese",
     projection: "Proiezione",
@@ -236,9 +239,8 @@ const I18N = {
     noDataMonth: "Nessun dato per questo mese.",
     eurosPerDay: "€ per giorno",
     pdf: "PDF",
-    edit: "Modifica",
-    save: "Salva",
-    cancel: "Annulla",
+    pdfTitle: "Riepilogo mensile",
+    dailyDetails: "Dettaglio giorni",
   },
   en: {
     appName: "Hours & Pay",
@@ -259,6 +261,9 @@ const I18N = {
     saveDay: "Save day",
     notes: "Notes",
     delete: "Delete",
+    edit: "Edit",
+    save: "Save",
+    cancel: "Cancel",
     monthHours: "Month hours",
     monthPay: "Month pay",
     projection: "Projection",
@@ -275,9 +280,8 @@ const I18N = {
     noDataMonth: "No data for this month.",
     eurosPerDay: "€ per day",
     pdf: "PDF",
-    edit: "Edit",
-    save: "Save",
-    cancel: "Cancel",
+    pdfTitle: "Monthly summary",
+    dailyDetails: "Daily details",
   },
 };
 
@@ -289,7 +293,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [cloudStatus, setCloudStatus] = useState("local"); // local | syncing | synced
 
-  // Default sensato: 10 €/h
+  // Default sensato
   const [jobs, setJobs] = useState([{ id: "default", name: lang === "it" ? "Lavoro" : "Job", rate: 10 }]);
   const [entries, setEntries] = useState([]);
   const [settings, setSettings] = useState({ overtimeThresholdHours: 40, overtimeMultiplier: 1.25 });
@@ -317,6 +321,7 @@ export default function App() {
       if (Array.isArray(data.entries)) setEntries(data.entries);
       if (data.settings) setSettings(data.settings);
     } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     try {
@@ -358,6 +363,7 @@ export default function App() {
       }
     });
     return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Debounced save
@@ -385,7 +391,6 @@ export default function App() {
   }, [active]);
 
   const jobsById = useMemo(() => Object.fromEntries(jobs.map((j) => [j.id, j])), [jobs]);
-
   const computed = useMemo(() => computeWeeklyPay(entries, jobsById, settings), [entries, jobsById, settings]);
 
   const entriesWithComputed = useMemo(() => {
@@ -437,41 +442,36 @@ export default function App() {
 
     return {
       labels,
-      datasets: [
-        {
-          label: t.eurosPerDay,
-          data: values,
-        },
-      ],
+      datasets: [{ label: t.eurosPerDay, data: values }],
     };
   }, [entriesWithComputed, currentMonth, t.eurosPerDay]);
 
   const exportPDF = () => {
-    const docp = new jsPDF();
+    const pdf = new jsPDF();
 
-    const title = lang === "it" ? "Riepilogo mensile" : "Monthly summary";
-    docp.setFontSize(16);
-    docp.text(`${title} - ${currentMonth}`, 14, 18);
+    pdf.setFontSize(16);
+    pdf.text(`${t.pdfTitle} - ${currentMonth}`, 14, 18);
 
-    docp.setFontSize(11);
+    pdf.setFontSize(11);
     const email = user?.email ? user.email : lang === "it" ? "Non loggato" : "Not logged in";
-    docp.text(`Email: ${email}`, 14, 26);
+    pdf.text(`Email: ${email}`, 14, 26);
 
-    docp.text(`${t.monthHours}: ${fmt2(monthTotals.hours)}`, 14, 36);
-    docp.text(`${t.monthPay}: € ${fmt2(monthTotals.pay)}`, 14, 44);
-    docp.text(`${t.projection}: € ${fmt2(monthTotals.projection)}`, 14, 52);
-    docp.text(`${t.overtime}: ${settings.overtimeThresholdHours}h, x${settings.overtimeMultiplier}`, 14, 62);
+    pdf.text(`${t.monthHours}: ${fmt2(monthTotals.hours)}`, 14, 36);
+    pdf.text(`${t.monthPay}: € ${fmt2(monthTotals.pay)}`, 14, 44);
+    pdf.text(`${t.projection}: € ${fmt2(monthTotals.projection)}`, 14, 52);
+
+    pdf.text(`${t.overtime}: ${settings.overtimeThresholdHours}h, x${settings.overtimeMultiplier}`, 14, 62);
 
     let y = 74;
-    docp.setFontSize(12);
-    docp.text(lang === "it" ? "Dettaglio giorni" : "Daily details", 14, y);
+    pdf.setFontSize(12);
+    pdf.text(t.dailyDetails, 14, y);
     y += 8;
 
-    docp.setFontSize(10);
-    docp.text(lang === "it" ? "Data" : "Date", 14, y);
-    docp.text(lang === "it" ? "Lavoro" : "Job", 55, y);
-    docp.text("h", 130, y);
-    docp.text("€", 150, y);
+    pdf.setFontSize(10);
+    pdf.text(lang === "it" ? "Data" : "Date", 14, y);
+    pdf.text(lang === "it" ? "Lavoro" : "Job", 50, y);
+    pdf.text("h", 120, y);
+    pdf.text("€", 140, y);
     y += 6;
 
     const monthRows = entriesWithComputed
@@ -480,18 +480,18 @@ export default function App() {
 
     for (const e of monthRows) {
       if (y > 285) {
-        docp.addPage();
+        pdf.addPage();
         y = 20;
       }
       const jobName = jobsById[e.jobId]?.name || "-";
-      docp.text(String(e.date), 14, y);
-      docp.text(String(jobName).slice(0, 26), 55, y);
-      docp.text(fmt2(e.hours), 130, y);
-      docp.text(fmt2(e.pay), 150, y);
+      pdf.text(String(e.date), 14, y);
+      pdf.text(String(jobName).slice(0, 22), 50, y);
+      pdf.text(fmt2(e.hours), 120, y);
+      pdf.text(fmt2(e.pay), 140, y);
       y += 6;
     }
 
-    docp.save(`ore-stipendio_${currentMonth}.pdf`);
+    pdf.save(`ore-stipendio_${currentMonth}.pdf`);
   };
 
   const loginGoogle = async () => {
@@ -516,7 +516,6 @@ export default function App() {
     if (active) return;
     const now = new Date();
     const hhmm = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
-
     setDraft((d) => {
       const blocks = [...d.blocks];
       let bi = blocks.findIndex((b) => !b.start || (b.start && b.end));
@@ -534,7 +533,6 @@ export default function App() {
     if (!active) return;
     const now = new Date();
     const hhmm = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
-
     setDraft((d) => {
       const blocks = [...d.blocks];
       const bi = active.blockIndex;
@@ -561,7 +559,7 @@ export default function App() {
 
   const deleteEntry = (id) => setEntries((prev) => prev.filter((e) => e.id !== id));
 
-  // Jobs: aggiunta + modifica tasso orario
+  // JOBS: aggiunta + modifica rate (anche default)
   const [newJob, setNewJob] = useState({ name: "", rate: "" });
   const addJob = () => {
     const name = (newJob.name || "").trim();
@@ -573,24 +571,22 @@ export default function App() {
     setDraft((d) => ({ ...d, jobId: id }));
   };
 
-  const [editJobId, setEditJobId] = useState(null);
-  const [editJob, setEditJob] = useState({ name: "", rate: "" });
-  const startEditJob = (id) => {
-    const j = jobsById[id];
-    if (!j) return;
-    setEditJobId(id);
-    setEditJob({ name: j.name, rate: String(j.rate) });
+  const [editingJobId, setEditingJobId] = useState(null);
+  const [editJobDraft, setEditJobDraft] = useState({ name: "", rate: "" });
+
+  const startEditJob = (job) => {
+    setEditingJobId(job.id);
+    setEditJobDraft({ name: job.name, rate: String(job.rate) });
   };
   const cancelEditJob = () => {
-    setEditJobId(null);
-    setEditJob({ name: "", rate: "" });
+    setEditingJobId(null);
+    setEditJobDraft({ name: "", rate: "" });
   };
   const saveEditJob = () => {
-    if (!editJobId) return;
-    const name = (editJob.name || "").trim();
-    const rate = Number(editJob.rate);
+    const name = (editJobDraft.name || "").trim();
+    const rate = Number(editJobDraft.rate);
     if (!name || !Number.isFinite(rate) || rate <= 0) return;
-    setJobs((prev) => prev.map((j) => (j.id === editJobId ? { ...j, name, rate } : j)));
+    setJobs((prev) => prev.map((j) => (j.id === editingJobId ? { ...j, name, rate } : j)));
     cancelEditJob();
   };
 
@@ -605,7 +601,8 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: "#f3f3f3", paddingBottom: 92 }}>
       <div style={{ maxWidth: 900, margin: "0 auto", padding: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+        {/* HEADER */}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
           <div>
             <div style={{ fontSize: 12, opacity: 0.75 }}>{t.tip}</div>
             <div style={{ fontSize: 24, fontWeight: 900 }}>{t.appName}</div>
@@ -614,15 +611,21 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <Button variant="secondary" onClick={exportPDF} title="Esporta PDF">
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <Button variant="secondary" onClick={exportPDF} title="Scarica PDF">
               {t.pdf}
             </Button>
 
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
-              style={{ height: 42, borderRadius: 14, border: "1px solid rgba(0,0,0,0.12)", padding: "0 10px" }}
+              style={{
+                height: 42,
+                borderRadius: 14,
+                border: "1px solid rgba(0,0,0,0.12)",
+                padding: "0 10px",
+                background: "rgba(255,255,255,0.92)",
+              }}
             >
               <option value="it">IT</option>
               <option value="en">EN</option>
@@ -638,19 +641,14 @@ export default function App() {
           </div>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 10,
-            marginTop: 14,
-          }}
-        >
+        {/* SUMMARY */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginTop: 14 }}>
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.monthHours}</div>
             <div style={{ fontSize: 22, fontWeight: 900 }}>{fmt2(monthTotals.hours)}</div>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{currentMonth}</div>
           </Card>
+
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.monthPay}</div>
             <div style={{ fontSize: 22, fontWeight: 900 }}>€ {fmt2(monthTotals.pay)}</div>
@@ -658,6 +656,7 @@ export default function App() {
               {t.projection}: € {fmt2(monthTotals.projection)}
             </div>
           </Card>
+
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.overtime}</div>
             <div style={{ fontSize: 12, opacity: 0.85 }}>
@@ -668,13 +667,14 @@ export default function App() {
           </Card>
         </div>
 
-        {/* Grafico */}
+        {/* CHART */}
         <div style={{ marginTop: 14 }}>
           <Card>
             {dailyData.labels.length ? <Bar data={dailyData} /> : <div style={{ opacity: 0.75 }}>{t.noDataMonth}</div>}
           </Card>
         </div>
 
+        {/* TABS */}
         <div style={{ marginTop: 14 }}>
           {tab === "today" && (
             <Card>
@@ -730,7 +730,7 @@ export default function App() {
 
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.notes}</div>
-                  <Input value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
+                  <Input value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} placeholder={t.notes} />
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -788,7 +788,7 @@ export default function App() {
 
               <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
                 {jobs.map((j) => {
-                  const isEditing = editJobId === j.id;
+                  const isEditing = editingJobId === j.id;
                   return (
                     <div
                       key={j.id}
@@ -805,22 +805,22 @@ export default function App() {
                             <div style={{ fontWeight: 900 }}>{j.name}</div>
                             <div style={{ fontSize: 12, opacity: 0.8 }}>€ {Number(j.rate).toFixed(2)}/h</div>
                           </div>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          <div style={{ display: "flex", gap: 8 }}>
                             <Button variant="secondary" onClick={() => setDraft((d) => ({ ...d, jobId: j.id }))}>
                               {t.today}
                             </Button>
-                            <Button variant="secondary" onClick={() => startEditJob(j.id)}>
+                            <Button variant="secondary" onClick={() => startEditJob(j)}>
                               {t.edit}
                             </Button>
                           </div>
                         </div>
                       ) : (
                         <div style={{ display: "grid", gap: 10 }}>
-                          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 160px" }}>
-                            <Input value={editJob.name} onChange={(e) => setEditJob((v) => ({ ...v, name: e.target.value }))} />
-                            <Input type="number" value={editJob.rate} onChange={(e) => setEditJob((v) => ({ ...v, rate: e.target.value }))} />
+                          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 180px" }}>
+                            <Input value={editJobDraft.name} onChange={(e) => setEditJobDraft((x) => ({ ...x, name: e.target.value }))} />
+                            <Input type="number" value={editJobDraft.rate} onChange={(e) => setEditJobDraft((x) => ({ ...x, rate: e.target.value }))} />
                           </div>
-                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                             <Button variant="secondary" onClick={cancelEditJob}>
                               {t.cancel}
                             </Button>
@@ -852,8 +852,9 @@ export default function App() {
         </div>
       </div>
 
+      {/* NAV BOTTOM */}
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 14, display: "flex", justifyContent: "center" }}>
-        <div style={{ width: "min(520px, calc(100% - 32px))", background: "rgba(255,255,255,0.85)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 20, padding: 8, display: "flex", gap: 8 }}>
+        <div style={{ width: "min(560px, calc(100% - 32px))", background: "rgba(255,255,255,0.85)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 20, padding: 8, display: "flex", gap: 8 }}>
           <NavBtn active={tab === "today"} onClick={() => setTab("today")} label={t.today} />
           <NavBtn active={tab === "log"} onClick={() => setTab("log")} label={t.log} />
           <NavBtn active={tab === "jobs"} onClick={() => setTab("jobs")} label={t.jobs} />
