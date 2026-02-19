@@ -49,9 +49,11 @@ function Button({ onClick, children, variant = "default", disabled, title }) {
   };
   const style =
     variant === "secondary"
-      ? { ...base, background: "rgba(255,255,255,0.92)" }
+      ? { ...base, background: "rgba(255,255,255,0.85)" }
       : variant === "ghost"
       ? { ...base, background: "transparent", border: "1px solid transparent" }
+      : variant === "danger"
+      ? { ...base, background: "#b00020", color: "white", border: "1px solid #b00020" }
       : { ...base, background: "#111", color: "white", border: "1px solid #111" };
 
   return (
@@ -124,18 +126,20 @@ const mondayOfWeek = (isoDate) => {
 };
 const weekKey = (isoDate) => mondayOfWeek(isoDate);
 
-/* Straordinari settimanali: oltre soglia (40h) * moltiplicatore (1.25x) */
+/* Straordinari settimanali: oltre soglia * moltiplicatore */
 function computeWeeklyPay(entries, jobsById, settings) {
   const { overtimeThresholdHours, overtimeMultiplier } = settings;
 
   const blocks = [];
   for (const e of entries) {
-    for (let bi = 0; bi < e.blocks.length; bi++) {
+    for (let bi = 0; bi < (e.blocks || []).length; bi++) {
       const b = e.blocks[bi];
-      if (!b.start || !b.end) continue;
+      if (!b?.start || !b?.end) continue;
       const minutes = diffMinutes(b.start, b.end);
       if (minutes <= 0) continue;
+
       const rate = Number(jobsById[e.jobId]?.rate || 0);
+
       blocks.push({
         entryId: e.id,
         blockIndex: bi,
@@ -171,7 +175,6 @@ function computeWeeklyPay(entries, jobsById, settings) {
     const overtimeHours = Math.max(0, totalHours - overtimeThresholdHours);
     let overtimeMinLeft = Math.round(overtimeHours * 60);
 
-    // assegna gli straordinari agli ultimi blocchi della settimana
     const otMinByBlock = new Map();
     for (let i = arr.length - 1; i >= 0 && overtimeMinLeft > 0; i--) {
       const bl = arr[i];
@@ -220,9 +223,6 @@ const I18N = {
     saveDay: "Salva giornata",
     notes: "Note",
     delete: "Elimina",
-    edit: "Modifica",
-    save: "Salva",
-    cancel: "Annulla",
     monthHours: "Ore mese",
     monthPay: "Paga mese",
     projection: "Proiezione",
@@ -239,8 +239,7 @@ const I18N = {
     noDataMonth: "Nessun dato per questo mese.",
     eurosPerDay: "€ per giorno",
     pdf: "PDF",
-    pdfTitle: "Riepilogo mensile",
-    dailyDetails: "Dettaglio giorni",
+    edit: "Modifica",
   },
   en: {
     appName: "Hours & Pay",
@@ -261,9 +260,6 @@ const I18N = {
     saveDay: "Save day",
     notes: "Notes",
     delete: "Delete",
-    edit: "Edit",
-    save: "Save",
-    cancel: "Cancel",
     monthHours: "Month hours",
     monthPay: "Month pay",
     projection: "Projection",
@@ -280,8 +276,7 @@ const I18N = {
     noDataMonth: "No data for this month.",
     eurosPerDay: "€ per day",
     pdf: "PDF",
-    pdfTitle: "Monthly summary",
-    dailyDetails: "Daily details",
+    edit: "Edit",
   },
 };
 
@@ -293,8 +288,8 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [cloudStatus, setCloudStatus] = useState("local"); // local | syncing | synced
 
-  // Default sensato
-  const [jobs, setJobs] = useState([{ id: "default", name: lang === "it" ? "Lavoro" : "Job", rate: 10 }]);
+  // ✅ default “sensato”: puoi cambiarlo in Lavori
+  const [jobs, setJobs] = useState([{ id: "default", name: "Lavoro", rate: 10 }]);
   const [entries, setEntries] = useState([]);
   const [settings, setSettings] = useState({ overtimeThresholdHours: 40, overtimeMultiplier: 1.25 });
 
@@ -309,7 +304,7 @@ export default function App() {
   const timerRef = useRef(null);
   const [, forceTick] = useState(0);
 
-  // Local backup
+  /* ---------- Local backup ---------- */
   const LOCAL_KEY = "ore_stipendio_repo_v2";
   useEffect(() => {
     try {
@@ -321,7 +316,6 @@ export default function App() {
       if (Array.isArray(data.entries)) setEntries(data.entries);
       if (data.settings) setSettings(data.settings);
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     try {
@@ -329,13 +323,13 @@ export default function App() {
     } catch {}
   }, [lang, jobs, entries, settings]);
 
-  // Cloud ref
+  /* ---------- Cloud ref ---------- */
   const cloudDocRef = useMemo(() => {
     if (!user?.uid) return null;
     return doc(db, "users", user.uid, "appdata", "main");
   }, [user]);
 
-  // Auth + load
+  /* ---------- Auth + load ---------- */
   useEffect(() => {
     getRedirectResult(auth).catch(() => {});
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -366,7 +360,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced save
+  /* ---------- Debounced save ---------- */
   const saveDebounce = useRef(null);
   useEffect(() => {
     if (!cloudDocRef) return;
@@ -383,7 +377,7 @@ export default function App() {
     return () => saveDebounce.current && clearTimeout(saveDebounce.current);
   }, [cloudDocRef, lang, jobs, entries, settings]);
 
-  // Timer tick
+  /* ---------- Timer tick ---------- */
   useEffect(() => {
     if (!active) return;
     timerRef.current = setInterval(() => forceTick((x) => x + 1), 1000);
@@ -391,10 +385,11 @@ export default function App() {
   }, [active]);
 
   const jobsById = useMemo(() => Object.fromEntries(jobs.map((j) => [j.id, j])), [jobs]);
+
   const computed = useMemo(() => computeWeeklyPay(entries, jobsById, settings), [entries, jobsById, settings]);
 
   const entriesWithComputed = useMemo(() => {
-    return entries
+    return (entries || [])
       .map((e) => ({
         ...e,
         hours: computed.hoursByEntry.get(e.id) || 0,
@@ -436,42 +431,51 @@ export default function App() {
         days[e.date] = (days[e.date] || 0) + e.pay;
       }
     });
-
     const labels = Object.keys(days).sort();
     const values = labels.map((d) => days[d]);
-
     return {
       labels,
-      datasets: [{ label: t.eurosPerDay, data: values }],
+      datasets: [
+        {
+          label: t.eurosPerDay,
+          data: values,
+        },
+      ],
     };
   }, [entriesWithComputed, currentMonth, t.eurosPerDay]);
 
+  /* ---------- PDF ---------- */
   const exportPDF = () => {
-    const pdf = new jsPDF();
+    const docPdf = new jsPDF();
 
-    pdf.setFontSize(16);
-    pdf.text(`${t.pdfTitle} - ${currentMonth}`, 14, 18);
+    const title = lang === "it" ? "Riepilogo mensile" : "Monthly summary";
+    docPdf.setFontSize(16);
+    docPdf.text(`${title} - ${currentMonth}`, 14, 18);
 
-    pdf.setFontSize(11);
+    docPdf.setFontSize(11);
     const email = user?.email ? user.email : lang === "it" ? "Non loggato" : "Not logged in";
-    pdf.text(`Email: ${email}`, 14, 26);
+    docPdf.text(`Email: ${email}`, 14, 26);
 
-    pdf.text(`${t.monthHours}: ${fmt2(monthTotals.hours)}`, 14, 36);
-    pdf.text(`${t.monthPay}: € ${fmt2(monthTotals.pay)}`, 14, 44);
-    pdf.text(`${t.projection}: € ${fmt2(monthTotals.projection)}`, 14, 52);
+    docPdf.text(`${t.monthHours}: ${fmt2(monthTotals.hours)}`, 14, 36);
+    docPdf.text(`${t.monthPay}: € ${fmt2(monthTotals.pay)}`, 14, 44);
+    docPdf.text(`${t.projection}: € ${fmt2(monthTotals.projection)}`, 14, 52);
 
-    pdf.text(`${t.overtime}: ${settings.overtimeThresholdHours}h, x${settings.overtimeMultiplier}`, 14, 62);
+    docPdf.text(
+      `${t.overtime}: ${settings.overtimeThresholdHours}h, x${settings.overtimeMultiplier}`,
+      14,
+      62
+    );
 
     let y = 74;
-    pdf.setFontSize(12);
-    pdf.text(t.dailyDetails, 14, y);
+    docPdf.setFontSize(12);
+    docPdf.text(lang === "it" ? "Dettaglio giorni" : "Daily details", 14, y);
     y += 8;
 
-    pdf.setFontSize(10);
-    pdf.text(lang === "it" ? "Data" : "Date", 14, y);
-    pdf.text(lang === "it" ? "Lavoro" : "Job", 50, y);
-    pdf.text("h", 120, y);
-    pdf.text("€", 140, y);
+    docPdf.setFontSize(10);
+    docPdf.text(lang === "it" ? "Data" : "Date", 14, y);
+    docPdf.text(lang === "it" ? "Lavoro" : "Job", 50, y);
+    docPdf.text("h", 120, y);
+    docPdf.text("€", 140, y);
     y += 6;
 
     const monthRows = entriesWithComputed
@@ -480,20 +484,22 @@ export default function App() {
 
     for (const e of monthRows) {
       if (y > 285) {
-        pdf.addPage();
+        docPdf.addPage();
         y = 20;
       }
       const jobName = jobsById[e.jobId]?.name || "-";
-      pdf.text(String(e.date), 14, y);
-      pdf.text(String(jobName).slice(0, 22), 50, y);
-      pdf.text(fmt2(e.hours), 120, y);
-      pdf.text(fmt2(e.pay), 140, y);
+      docPdf.text(String(e.date), 14, y);
+      docPdf.text(String(jobName).slice(0, 22), 50, y);
+      docPdf.text(fmt2(e.hours), 120, y);
+      docPdf.text(fmt2(e.pay), 140, y);
       y += 6;
     }
 
-    pdf.save(`ore-stipendio_${currentMonth}.pdf`);
+    const filename = `ore-stipendio_${currentMonth}.pdf`;
+    docPdf.save(filename);
   };
 
+  /* ---------- Auth buttons ---------- */
   const loginGoogle = async () => {
     try {
       await signInWithPopup(auth, provider);
@@ -501,13 +507,13 @@ export default function App() {
       await signInWithRedirect(auth, provider);
     }
   };
-
   const logout = async () => {
     try {
       await signOut(auth);
     } catch {}
   };
 
+  /* ---------- Draft helpers ---------- */
   const addBlock = () => setDraft((d) => ({ ...d, blocks: [...d.blocks, { start: "", end: "" }] }));
   const updateBlock = (i, key, val) =>
     setDraft((d) => ({ ...d, blocks: d.blocks.map((b, idx) => (idx === i ? { ...b, [key]: val } : b)) }));
@@ -528,7 +534,6 @@ export default function App() {
       return { ...d, blocks };
     });
   };
-
   const stopTimer = () => {
     if (!active) return;
     const now = new Date();
@@ -559,8 +564,9 @@ export default function App() {
 
   const deleteEntry = (id) => setEntries((prev) => prev.filter((e) => e.id !== id));
 
-  // JOBS: aggiunta + modifica rate (anche default)
+  /* ---------- Jobs CRUD ---------- */
   const [newJob, setNewJob] = useState({ name: "", rate: "" });
+
   const addJob = () => {
     const name = (newJob.name || "").trim();
     const rate = Number(newJob.rate);
@@ -569,63 +575,68 @@ export default function App() {
     setJobs((prev) => [...prev, { id, name, rate }]);
     setNewJob({ name: "", rate: "" });
     setDraft((d) => ({ ...d, jobId: id }));
+    setTab("today");
   };
 
-  const [editingJobId, setEditingJobId] = useState(null);
-  const [editJobDraft, setEditJobDraft] = useState({ name: "", rate: "" });
-
-  const startEditJob = (job) => {
-    setEditingJobId(job.id);
-    setEditJobDraft({ name: job.name, rate: String(job.rate) });
-  };
-  const cancelEditJob = () => {
-    setEditingJobId(null);
-    setEditJobDraft({ name: "", rate: "" });
-  };
-  const saveEditJob = () => {
-    const name = (editJobDraft.name || "").trim();
-    const rate = Number(editJobDraft.rate);
-    if (!name || !Number.isFinite(rate) || rate <= 0) return;
-    setJobs((prev) => prev.map((j) => (j.id === editingJobId ? { ...j, name, rate } : j)));
-    cancelEditJob();
+  const updateJob = (id, patch) => {
+    setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
   };
 
+  const deleteJob = (id) => {
+    if (id === "default") return; // non eliminare default
+    const used = entries.some((e) => e.jobId === id);
+    if (used) {
+      const ok = window.confirm(
+        lang === "it"
+          ? "Questo lavoro è usato in alcune giornate. Vuoi eliminarlo lo stesso? (Le giornate resteranno ma il nome lavoro potrebbe sparire)"
+          : "This job is used in some entries. Delete anyway? (Entries stay but job name may be missing)"
+      );
+      if (!ok) return;
+    }
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+    setDraft((d) => ({ ...d, jobId: d.jobId === id ? "default" : d.jobId }));
+  };
+
+  /* ---------- UI helpers ---------- */
   const statusLabel = cloudStatus === "synced" ? t.synced : t.local;
-
   const live = (() => {
     if (!active) return null;
     const s = Math.floor((Date.now() - active.startedAt.getTime()) / 1000);
     return `${pad2(Math.floor(s / 3600))}:${pad2(Math.floor((s % 3600) / 60))}:${pad2(s % 60)}`;
   })();
 
+  const chartOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } },
+    }),
+    []
+  );
+
   return (
     <div style={{ minHeight: "100vh", background: "#f3f3f3", paddingBottom: 92 }}>
       <div style={{ maxWidth: 900, margin: "0 auto", padding: 16 }}>
-        {/* HEADER */}
+        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
           <div>
             <div style={{ fontSize: 12, opacity: 0.75 }}>{t.tip}</div>
-            <div style={{ fontSize: 24, fontWeight: 900 }}>{t.appName}</div>
+            <div style={{ fontSize: 26, fontWeight: 900 }}>{t.appName}</div>
             <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
               {t.cloud}: <b>{statusLabel}</b> {user?.email ? ` · ${user.email}` : ""}
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <Button variant="secondary" onClick={exportPDF} title="Scarica PDF">
+            <Button variant="secondary" onClick={exportPDF} title="Esporta PDF">
               {t.pdf}
             </Button>
 
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
-              style={{
-                height: 42,
-                borderRadius: 14,
-                border: "1px solid rgba(0,0,0,0.12)",
-                padding: "0 10px",
-                background: "rgba(255,255,255,0.92)",
-              }}
+              style={{ height: 42, borderRadius: 14, border: "1px solid rgba(0,0,0,0.12)", padding: "0 10px" }}
             >
               <option value="it">IT</option>
               <option value="en">EN</option>
@@ -641,14 +652,13 @@ export default function App() {
           </div>
         </div>
 
-        {/* SUMMARY */}
+        {/* Top cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginTop: 14 }}>
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.monthHours}</div>
             <div style={{ fontSize: 22, fontWeight: 900 }}>{fmt2(monthTotals.hours)}</div>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{currentMonth}</div>
           </Card>
-
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.monthPay}</div>
             <div style={{ fontSize: 22, fontWeight: 900 }}>€ {fmt2(monthTotals.pay)}</div>
@@ -656,7 +666,6 @@ export default function App() {
               {t.projection}: € {fmt2(monthTotals.projection)}
             </div>
           </Card>
-
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.overtime}</div>
             <div style={{ fontSize: 12, opacity: 0.85 }}>
@@ -667,15 +676,22 @@ export default function App() {
           </Card>
         </div>
 
-        {/* CHART */}
+        {/* Chart */}
         <div style={{ marginTop: 14 }}>
           <Card>
-            {dailyData.labels.length ? <Bar data={dailyData} /> : <div style={{ opacity: 0.75 }}>{t.noDataMonth}</div>}
+            {dailyData.labels.length ? (
+              <div style={{ height: 240 }}>
+                <Bar data={dailyData} options={chartOptions} />
+              </div>
+            ) : (
+              <div style={{ opacity: 0.75 }}>{t.noDataMonth}</div>
+            )}
           </Card>
         </div>
 
-        {/* TABS */}
+        {/* Tabs content */}
         <div style={{ marginTop: 14 }}>
+          {/* TODAY */}
           {tab === "today" && (
             <Card>
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
@@ -740,6 +756,7 @@ export default function App() {
             </Card>
           )}
 
+          {/* LOG */}
           {tab === "log" && (
             <Card>
               {entriesWithComputed.length === 0 ? (
@@ -777,6 +794,7 @@ export default function App() {
             </Card>
           )}
 
+          {/* JOBS */}
           {tab === "jobs" && (
             <Card>
               <div style={{ fontWeight: 900, marginBottom: 10 }}>{t.newJob}</div>
@@ -786,65 +804,70 @@ export default function App() {
                 <Button onClick={addJob}>{t.add}</Button>
               </div>
 
-              <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                {jobs.map((j) => {
-                  const isEditing = editingJobId === j.id;
-                  return (
-                    <div
-                      key={j.id}
-                      style={{
-                        padding: 10,
-                        borderRadius: 14,
-                        border: "1px solid rgba(0,0,0,0.06)",
-                        background: "rgba(255,255,255,0.65)",
-                      }}
+              <div style={{ marginTop: 14, fontWeight: 900 }}>{t.jobs}</div>
+              <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                {jobs.map((j) => (
+                  <div
+                    key={j.id}
+                    style={{
+                      display: "grid",
+                      gap: 10,
+                      gridTemplateColumns: "1fr 140px auto auto",
+                      alignItems: "center",
+                      padding: 10,
+                      borderRadius: 14,
+                      border: "1px solid rgba(0,0,0,0.06)",
+                      background: "rgba(255,255,255,0.65)",
+                    }}
+                  >
+                    <Input
+                      value={j.name}
+                      onChange={(e) => updateJob(j.id, { name: e.target.value })}
+                      placeholder={t.name}
+                    />
+                    <Input
+                      type="number"
+                      value={String(j.rate)}
+                      onChange={(e) => updateJob(j.id, { rate: Number(e.target.value || 0) })}
+                      placeholder={t.rate}
+                    />
+                    <Button variant="secondary" onClick={() => setDraft((d) => ({ ...d, jobId: j.id }))}>
+                      {t.today}
+                    </Button>
+                    <Button
+                      variant={j.id === "default" ? "ghost" : "danger"}
+                      disabled={j.id === "default"}
+                      title={j.id === "default" ? "Il lavoro di default non si elimina" : "Elimina lavoro"}
+                      onClick={() => deleteJob(j.id)}
                     >
-                      {!isEditing ? (
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                          <div>
-                            <div style={{ fontWeight: 900 }}>{j.name}</div>
-                            <div style={{ fontSize: 12, opacity: 0.8 }}>€ {Number(j.rate).toFixed(2)}/h</div>
-                          </div>
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <Button variant="secondary" onClick={() => setDraft((d) => ({ ...d, jobId: j.id }))}>
-                              {t.today}
-                            </Button>
-                            <Button variant="secondary" onClick={() => startEditJob(j)}>
-                              {t.edit}
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ display: "grid", gap: 10 }}>
-                          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 180px" }}>
-                            <Input value={editJobDraft.name} onChange={(e) => setEditJobDraft((x) => ({ ...x, name: e.target.value }))} />
-                            <Input type="number" value={editJobDraft.rate} onChange={(e) => setEditJobDraft((x) => ({ ...x, rate: e.target.value }))} />
-                          </div>
-                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                            <Button variant="secondary" onClick={cancelEditJob}>
-                              {t.cancel}
-                            </Button>
-                            <Button onClick={saveEditJob}>{t.save}</Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      {t.delete}
+                    </Button>
+                  </div>
+                ))}
               </div>
             </Card>
           )}
 
+          {/* SETTINGS */}
           {tab === "settings" && (
             <Card>
               <div style={{ display: "grid", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.threshold}</div>
-                  <Input type="number" value={settings.overtimeThresholdHours} onChange={(e) => setSettings((s) => ({ ...s, overtimeThresholdHours: Number(e.target.value || 0) }))} />
+                  <Input
+                    type="number"
+                    value={settings.overtimeThresholdHours}
+                    onChange={(e) => setSettings((s) => ({ ...s, overtimeThresholdHours: Number(e.target.value || 0) }))}
+                  />
                 </div>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.multiplier}</div>
-                  <Input type="number" step="0.01" value={settings.overtimeMultiplier} onChange={(e) => setSettings((s) => ({ ...s, overtimeMultiplier: Number(e.target.value || 1) }))} />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={settings.overtimeMultiplier}
+                    onChange={(e) => setSettings((s) => ({ ...s, overtimeMultiplier: Number(e.target.value || 1) }))}
+                  />
                 </div>
               </div>
             </Card>
@@ -852,9 +875,19 @@ export default function App() {
         </div>
       </div>
 
-      {/* NAV BOTTOM */}
+      {/* Bottom nav */}
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 14, display: "flex", justifyContent: "center" }}>
-        <div style={{ width: "min(560px, calc(100% - 32px))", background: "rgba(255,255,255,0.85)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 20, padding: 8, display: "flex", gap: 8 }}>
+        <div
+          style={{
+            width: "min(520px, calc(100% - 32px))",
+            background: "rgba(255,255,255,0.85)",
+            border: "1px solid rgba(0,0,0,0.06)",
+            borderRadius: 20,
+            padding: 8,
+            display: "flex",
+            gap: 8,
+          }}
+        >
           <NavBtn active={tab === "today"} onClick={() => setTab("today")} label={t.today} />
           <NavBtn active={tab === "log"} onClick={() => setTab("log")} label={t.log} />
           <NavBtn active={tab === "jobs"} onClick={() => setTab("jobs")} label={t.jobs} />
