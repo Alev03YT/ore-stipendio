@@ -1,10 +1,11 @@
-// ===== IMPORT =====
 import jsPDF from "jspdf";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+// Chart
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from "chart.js";
 import { Bar } from "react-chartjs-2";
 
+// Firebase
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -19,7 +20,7 @@ import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "firebase/fir
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 
-// ===== FIREBASE =====
+/** ✅ tua config Firebase */
 const firebaseConfig = {
   apiKey: "AIzaSyBNmY-VtIBYjN3rCIrWWrGlLVgIN9F7d2U",
   authDomain: "ore-stipendio-app.firebaseapp.com",
@@ -34,260 +35,850 @@ const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 const provider = new GoogleAuthProvider();
 
-// ===== UI BASE =====
-const Button = ({ onClick, children, variant = "default" }) => {
+/* ---------- Mini UI (zero librerie) ---------- */
+function Button({ onClick, children, variant = "default", disabled, title }) {
+  const base = {
+    height: 42,
+    borderRadius: 14,
+    padding: "0 14px",
+    fontWeight: 800,
+    border: "1px solid rgba(0,0,0,0.10)",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.6 : 1,
+    whiteSpace: "nowrap",
+  };
   const style =
     variant === "secondary"
-      ? { background: "#eee" }
-      : { background: "#111", color: "white" };
+      ? { ...base, background: "rgba(255,255,255,0.85)" }
+      : variant === "ghost"
+      ? { ...base, background: "transparent", border: "1px solid transparent" }
+      : { ...base, background: "#111", color: "white", border: "1px solid #111" };
 
   return (
-    <button
-      onClick={onClick}
-      style={{
-        height: 42,
-        borderRadius: 14,
-        padding: "0 14px",
-        border: "none",
-        fontWeight: 700,
-        cursor: "pointer",
-        ...style,
-      }}
-    >
+    <button title={title} onClick={disabled ? undefined : onClick} style={style}>
       {children}
     </button>
   );
-};
+}
 
-const Input = (props) => (
-  <input
-    {...props}
-    style={{
-      width: "100%",
-      height: 42,
-      borderRadius: 14,
-      border: "1px solid #ccc",
-      padding: "0 12px",
-    }}
-  />
-);
+function Input(props) {
+  return (
+    <input
+      {...props}
+      style={{
+        width: "100%",
+        height: 42,
+        borderRadius: 14,
+        border: "1px solid rgba(0,0,0,0.12)",
+        padding: "0 12px",
+        background: "rgba(255,255,255,0.92)",
+        outline: "none",
+      }}
+    />
+  );
+}
 
-const Card = ({ children }) => (
-  <div
-    style={{
-      borderRadius: 18,
-      background: "white",
-      border: "1px solid #eee",
-      padding: 14,
-    }}
-  >
-    {children}
-  </div>
-);
+function Card({ children }) {
+  return (
+    <div
+      style={{
+        borderRadius: 18,
+        background: "rgba(255,255,255,0.75)",
+        border: "1px solid rgba(0,0,0,0.06)",
+        padding: 14,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
-// ===== HELPERS =====
+/* ---------- Helpers ---------- */
 const uid = () => Math.random().toString(36).slice(2, 10);
 const pad2 = (n) => String(n).padStart(2, "0");
 const todayISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 };
-
-const diffMinutes = (s, e) => {
-  const [sh, sm] = s.split(":").map(Number);
-  const [eh, em] = e.split(":").map(Number);
-  return eh * 60 + em - (sh * 60 + sm);
+const parseTimeToMinutes = (hhmm) => {
+  const [h, m] = (hhmm || "").split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
 };
-
-const fmt2 = (n) => Number(n || 0).toFixed(2);
+const diffMinutes = (startHHMM, endHHMM) => {
+  const s = parseTimeToMinutes(startHHMM);
+  const e = parseTimeToMinutes(endHHMM);
+  if (s == null || e == null) return 0;
+  return e >= s ? e - s : 24 * 60 - s + e;
+};
+const minutesToHours = (min) => min / 60;
+const fmt2 = (n) => (Number.isFinite(n) ? n.toFixed(2) : "0.00");
 const monthKey = (iso) => iso.slice(0, 7);
 
-// ===== APP =====
+const mondayOfWeek = (isoDate) => {
+  const d = new Date(`${isoDate}T00:00:00`);
+  const day = d.getDay(); // 0 dom .. 6 sab
+  const diff = (day === 0 ? -6 : 1) - day; // lunedì
+  d.setDate(d.getDate() + diff);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+const weekKey = (isoDate) => mondayOfWeek(isoDate);
+
+/* Straordinari settimanali: oltre soglia * moltiplicatore */
+function computeWeeklyPay(entries, jobsById, settings) {
+  const { overtimeThresholdHours, overtimeMultiplier } = settings;
+
+  const blocks = [];
+  for (const e of entries) {
+    for (let bi = 0; bi < e.blocks.length; bi++) {
+      const b = e.blocks[bi];
+      if (!b.start || !b.end) continue;
+      const minutes = diffMinutes(b.start, b.end);
+      if (minutes <= 0) continue;
+      const rate = Number(jobsById[e.jobId]?.rate || 0);
+      blocks.push({
+        entryId: e.id,
+        blockIndex: bi,
+        date: e.date,
+        start: b.start,
+        minutes,
+        rate,
+        wk: weekKey(e.date),
+      });
+    }
+  }
+
+  blocks.sort((a, b) => {
+    if (a.wk !== b.wk) return a.wk.localeCompare(b.wk);
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (parseTimeToMinutes(a.start) ?? 0) - (parseTimeToMinutes(b.start) ?? 0);
+  });
+
+  const byWeek = new Map();
+  for (const bl of blocks) {
+    const arr = byWeek.get(bl.wk) || [];
+    arr.push(bl);
+    byWeek.set(bl.wk, arr);
+  }
+
+  const payByEntry = new Map();
+  const hoursByEntry = new Map();
+
+  for (const [, arr] of byWeek.entries()) {
+    const totalMin = arr.reduce((s, x) => s + x.minutes, 0);
+    const totalHours = minutesToHours(totalMin);
+
+    const overtimeHours = Math.max(0, totalHours - overtimeThresholdHours);
+    let overtimeMinLeft = Math.round(overtimeHours * 60);
+
+    // Straordinario assegnato agli ultimi blocchi della settimana
+    const otMinByBlock = new Map();
+    for (let i = arr.length - 1; i >= 0 && overtimeMinLeft > 0; i--) {
+      const bl = arr[i];
+      const take = Math.min(bl.minutes, overtimeMinLeft);
+      overtimeMinLeft -= take;
+      otMinByBlock.set(`${bl.entryId}:${bl.blockIndex}`, take);
+    }
+
+    for (const bl of arr) {
+      const key = `${bl.entryId}:${bl.blockIndex}`;
+      const otMin = otMinByBlock.get(key) || 0;
+      const regMin = bl.minutes - otMin;
+
+      const regPay = minutesToHours(regMin) * bl.rate;
+      const otPay = minutesToHours(otMin) * bl.rate * overtimeMultiplier;
+
+      const pay = regPay + otPay;
+      const hrs = minutesToHours(bl.minutes);
+
+      payByEntry.set(bl.entryId, (payByEntry.get(bl.entryId) || 0) + pay);
+      hoursByEntry.set(bl.entryId, (hoursByEntry.get(bl.entryId) || 0) + hrs);
+    }
+  }
+
+  return { payByEntry, hoursByEntry };
+}
+
+/* ---------- i18n ---------- */
+const I18N = {
+  it: {
+    appName: "Ore & Stipendio",
+    today: "Oggi",
+    log: "Registro",
+    jobs: "Lavori",
+    settings: "Impostazioni",
+    signIn: "Accedi con Google",
+    signOut: "Esci",
+    cloud: "Cloud",
+    synced: "Sincronizzato",
+    local: "Solo locale",
+    date: "Data",
+    job: "Lavoro",
+    from: "Da",
+    to: "A",
+    addBlock: "Aggiungi blocco",
+    saveDay: "Salva giornata",
+    notes: "Note",
+    delete: "Elimina",
+    monthHours: "Ore mese",
+    monthPay: "Paga mese",
+    projection: "Proiezione",
+    overtime: "Straordinari",
+    threshold: "Soglia settimanale (ore)",
+    multiplier: "Maggiorazione (x)",
+    newJob: "Nuovo lavoro",
+    name: "Nome",
+    rate: "€ / h",
+    add: "Aggiungi",
+    invalid: "Controlla orari e campi.",
+    empty: "Nessun dato ancora.",
+    tip: "Suggerimento: aggiungi alla Home per usarla come app.",
+    noDataMonth: "Nessun dato per questo mese.",
+    eurosPerDay: "€ per giorno",
+    pdf: "PDF",
+    edit: "Modifica",
+    save: "Salva",
+    cancel: "Annulla",
+  },
+  en: {
+    appName: "Hours & Pay",
+    today: "Today",
+    log: "Log",
+    jobs: "Jobs",
+    settings: "Settings",
+    signIn: "Sign in with Google",
+    signOut: "Sign out",
+    cloud: "Cloud",
+    synced: "Synced",
+    local: "Local only",
+    date: "Date",
+    job: "Job",
+    from: "From",
+    to: "To",
+    addBlock: "Add block",
+    saveDay: "Save day",
+    notes: "Notes",
+    delete: "Delete",
+    monthHours: "Month hours",
+    monthPay: "Month pay",
+    projection: "Projection",
+    overtime: "Overtime",
+    threshold: "Weekly threshold (hours)",
+    multiplier: "Multiplier (x)",
+    newJob: "New job",
+    name: "Name",
+    rate: "€ / h",
+    add: "Add",
+    invalid: "Check times and fields.",
+    empty: "No data yet.",
+    tip: "Tip: add to Home Screen to use it like an app.",
+    noDataMonth: "No data for this month.",
+    eurosPerDay: "€ per day",
+    pdf: "PDF",
+    edit: "Edit",
+    save: "Save",
+    cancel: "Cancel",
+  },
+};
+
 export default function App() {
   const [tab, setTab] = useState("today");
+  const [lang, setLang] = useState("it");
+  const t = I18N[lang];
 
-  const [jobs, setJobs] = useState([{ id: "default", name: "Lavoro", rate: 10 }]);
+  const [user, setUser] = useState(null);
+  const [cloudStatus, setCloudStatus] = useState("local"); // local | syncing | synced
+
+  // Default sensato: 10 €/h
+  const [jobs, setJobs] = useState([{ id: "default", name: lang === "it" ? "Lavoro" : "Job", rate: 10 }]);
   const [entries, setEntries] = useState([]);
-
-  const [settings, setSettings] = useState({
-    overtimeThresholdHours: 40,
-    overtimeMultiplier: 1.25,
-    defaultRate: 10,
-    breakMinutes: 0,
-    roundingMinutes: 0,
-  });
+  const [settings, setSettings] = useState({ overtimeThresholdHours: 40, overtimeMultiplier: 1.25 });
 
   const [draft, setDraft] = useState({
     date: todayISO(),
     jobId: "default",
     blocks: [{ start: "", end: "" }],
+    notes: "",
   });
+
+  const [active, setActive] = useState(null); // {blockIndex, startedAt}
+  const timerRef = useRef(null);
+  const [, forceTick] = useState(0);
+
+  // Local backup
+  const LOCAL_KEY = "ore_stipendio_repo_v2";
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_KEY);
+      if (!saved) return;
+      const data = JSON.parse(saved);
+      if (data.lang) setLang(data.lang);
+      if (Array.isArray(data.jobs) && data.jobs.length) setJobs(data.jobs);
+      if (Array.isArray(data.entries)) setEntries(data.entries);
+      if (data.settings) setSettings(data.settings);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCAL_KEY, JSON.stringify({ lang, jobs, entries, settings }));
+    } catch {}
+  }, [lang, jobs, entries, settings]);
+
+  // Cloud ref
+  const cloudDocRef = useMemo(() => {
+    if (!user?.uid) return null;
+    return doc(db, "users", user.uid, "appdata", "main");
+  }, [user]);
+
+  // Auth + load
+  useEffect(() => {
+    getRedirectResult(auth).catch(() => {});
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setUser(u || null);
+      if (!u) {
+        setCloudStatus("local");
+        return;
+      }
+      try {
+        setCloudStatus("syncing");
+        const ref = doc(db, "users", u.uid, "appdata", "main");
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.lang) setLang(data.lang);
+          if (Array.isArray(data.jobs) && data.jobs.length) setJobs(data.jobs);
+          if (Array.isArray(data.entries)) setEntries(data.entries);
+          if (data.settings) setSettings(data.settings);
+        } else {
+          await setDoc(ref, { lang, jobs, entries, settings, updatedAt: serverTimestamp() }, { merge: true });
+        }
+        setCloudStatus("synced");
+      } catch {
+        setCloudStatus("local");
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Debounced save
+  const saveDebounce = useRef(null);
+  useEffect(() => {
+    if (!cloudDocRef) return;
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(async () => {
+      try {
+        setCloudStatus("syncing");
+        await setDoc(cloudDocRef, { lang, jobs, entries, settings, updatedAt: serverTimestamp() }, { merge: true });
+        setCloudStatus("synced");
+      } catch {
+        setCloudStatus("local");
+      }
+    }, 600);
+    return () => saveDebounce.current && clearTimeout(saveDebounce.current);
+  }, [cloudDocRef, lang, jobs, entries, settings]);
+
+  // Timer tick
+  useEffect(() => {
+    if (!active) return;
+    timerRef.current = setInterval(() => forceTick((x) => x + 1), 1000);
+    return () => clearInterval(timerRef.current);
+  }, [active]);
 
   const jobsById = useMemo(() => Object.fromEntries(jobs.map((j) => [j.id, j])), [jobs]);
 
-  // ===== CALCOLO =====
+  const computed = useMemo(() => computeWeeklyPay(entries, jobsById, settings), [entries, jobsById, settings]);
+
   const entriesWithComputed = useMemo(() => {
-    return entries.map((e) => {
-      let minutes = e.blocks.reduce((s, b) => s + diffMinutes(b.start, b.end), 0);
-
-      if (settings.roundingMinutes > 0) {
-        minutes = Math.round(minutes / settings.roundingMinutes) * settings.roundingMinutes;
-      }
-
-      minutes -= settings.breakMinutes;
-      if (minutes < 0) minutes = 0;
-
-      const hours = minutes / 60;
-      const pay = hours * (jobsById[e.jobId]?.rate || 0);
-
-      return { ...e, hours, pay };
-    });
-  }, [entries, jobsById, settings]);
+    return entries
+      .map((e) => ({
+        ...e,
+        hours: computed.hoursByEntry.get(e.id) || 0,
+        pay: computed.payByEntry.get(e.id) || 0,
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [entries, computed]);
 
   const currentMonth = todayISO().slice(0, 7);
 
   const monthTotals = useMemo(() => {
     const list = entriesWithComputed.filter((e) => monthKey(e.date) === currentMonth);
-    return {
-      hours: list.reduce((s, e) => s + e.hours, 0),
-      pay: list.reduce((s, e) => s + e.pay, 0),
-    };
+    const hours = list.reduce((s, e) => s + e.hours, 0);
+    const pay = list.reduce((s, e) => s + e.pay, 0);
+
+    const workedDays = new Set(list.map((e) => e.date)).size;
+    const avgPerDay = workedDays ? pay / workedDays : 0;
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const last = new Date(year, month + 1, 0).getDate();
+
+    let remainingWeekdays = 0;
+    for (let d = now.getDate() + 1; d <= last; d++) {
+      const dd = new Date(year, month, d);
+      const wd = dd.getDay();
+      if (wd !== 0 && wd !== 6) remainingWeekdays++;
+    }
+
+    const projection = pay + avgPerDay * remainingWeekdays;
+    return { hours, pay, projection };
   }, [entriesWithComputed, currentMonth]);
 
-  // ===== PDF =====
+  const dailyData = useMemo(() => {
+    const days = {};
+    entriesWithComputed.forEach((e) => {
+      if (monthKey(e.date) === currentMonth) {
+        days[e.date] = (days[e.date] || 0) + e.pay;
+      }
+    });
+
+    const labels = Object.keys(days).sort();
+    const values = labels.map((d) => days[d]);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: t.eurosPerDay,
+          data: values,
+        },
+      ],
+    };
+  }, [entriesWithComputed, currentMonth, t.eurosPerDay]);
+
   const exportPDF = () => {
-    const doc = new jsPDF();
-    doc.text(`Riepilogo ${currentMonth}`, 14, 20);
+    const docp = new jsPDF();
 
-    let y = 30;
-    entriesWithComputed
+    const title = lang === "it" ? "Riepilogo mensile" : "Monthly summary";
+    docp.setFontSize(16);
+    docp.text(`${title} - ${currentMonth}`, 14, 18);
+
+    docp.setFontSize(11);
+    const email = user?.email ? user.email : lang === "it" ? "Non loggato" : "Not logged in";
+    docp.text(`Email: ${email}`, 14, 26);
+
+    docp.text(`${t.monthHours}: ${fmt2(monthTotals.hours)}`, 14, 36);
+    docp.text(`${t.monthPay}: € ${fmt2(monthTotals.pay)}`, 14, 44);
+    docp.text(`${t.projection}: € ${fmt2(monthTotals.projection)}`, 14, 52);
+    docp.text(`${t.overtime}: ${settings.overtimeThresholdHours}h, x${settings.overtimeMultiplier}`, 14, 62);
+
+    let y = 74;
+    docp.setFontSize(12);
+    docp.text(lang === "it" ? "Dettaglio giorni" : "Daily details", 14, y);
+    y += 8;
+
+    docp.setFontSize(10);
+    docp.text(lang === "it" ? "Data" : "Date", 14, y);
+    docp.text(lang === "it" ? "Lavoro" : "Job", 55, y);
+    docp.text("h", 130, y);
+    docp.text("€", 150, y);
+    y += 6;
+
+    const monthRows = entriesWithComputed
       .filter((e) => monthKey(e.date) === currentMonth)
-      .forEach((e) => {
-        doc.text(`${e.date}  ${fmt2(e.hours)}h  €${fmt2(e.pay)}`, 14, y);
-        y += 6;
-      });
+      .sort((a, b) => a.date.localeCompare(b.date));
 
-    doc.save(`ore-${currentMonth}.pdf`);
+    for (const e of monthRows) {
+      if (y > 285) {
+        docp.addPage();
+        y = 20;
+      }
+      const jobName = jobsById[e.jobId]?.name || "-";
+      docp.text(String(e.date), 14, y);
+      docp.text(String(jobName).slice(0, 26), 55, y);
+      docp.text(fmt2(e.hours), 130, y);
+      docp.text(fmt2(e.pay), 150, y);
+      y += 6;
+    }
+
+    docp.save(`ore-stipendio_${currentMonth}.pdf`);
   };
 
-  // ===== ADD DAY =====
+  const loginGoogle = async () => {
+    try {
+      await signInWithPopup(auth, provider);
+    } catch {
+      await signInWithRedirect(auth, provider);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch {}
+  };
+
+  const addBlock = () => setDraft((d) => ({ ...d, blocks: [...d.blocks, { start: "", end: "" }] }));
+  const updateBlock = (i, key, val) =>
+    setDraft((d) => ({ ...d, blocks: d.blocks.map((b, idx) => (idx === i ? { ...b, [key]: val } : b)) }));
+
+  const startTimer = () => {
+    if (active) return;
+    const now = new Date();
+    const hhmm = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+
+    setDraft((d) => {
+      const blocks = [...d.blocks];
+      let bi = blocks.findIndex((b) => !b.start || (b.start && b.end));
+      if (bi === -1) {
+        blocks.push({ start: "", end: "" });
+        bi = blocks.length - 1;
+      }
+      blocks[bi] = { start: hhmm, end: "" };
+      setActive({ blockIndex: bi, startedAt: now });
+      return { ...d, blocks };
+    });
+  };
+
+  const stopTimer = () => {
+    if (!active) return;
+    const now = new Date();
+    const hhmm = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+
+    setDraft((d) => {
+      const blocks = [...d.blocks];
+      const bi = active.blockIndex;
+      if (blocks[bi]) blocks[bi] = { ...blocks[bi], end: hhmm };
+      return { ...d, blocks };
+    });
+    setActive(null);
+  };
+
   const saveDay = () => {
-    setEntries((p) => [...p, { id: uid(), ...draft }]);
-    setDraft({ date: todayISO(), jobId: draft.jobId, blocks: [{ start: "", end: "" }] });
+    const blocks = draft.blocks
+      .map((b) => ({ start: (b.start || "").trim(), end: (b.end || "").trim() }))
+      .filter((b) => b.start || b.end);
+
+    if (!draft.date || !draft.jobId || blocks.length === 0) return alert(t.invalid);
+    for (const b of blocks) {
+      if (!b.start || !b.end || diffMinutes(b.start, b.end) <= 0) return alert(t.invalid);
+    }
+
+    const entry = { id: uid(), date: draft.date, jobId: draft.jobId, blocks, notes: draft.notes || "" };
+    setEntries((prev) => [entry, ...prev]);
+    setDraft({ date: todayISO(), jobId: draft.jobId, blocks: [{ start: "", end: "" }], notes: "" });
   };
 
-  // ===== UI =====
+  const deleteEntry = (id) => setEntries((prev) => prev.filter((e) => e.id !== id));
+
+  // Jobs: aggiunta + modifica tasso orario
+  const [newJob, setNewJob] = useState({ name: "", rate: "" });
+  const addJob = () => {
+    const name = (newJob.name || "").trim();
+    const rate = Number(newJob.rate);
+    if (!name || !Number.isFinite(rate) || rate <= 0) return;
+    const id = uid();
+    setJobs((prev) => [...prev, { id, name, rate }]);
+    setNewJob({ name: "", rate: "" });
+    setDraft((d) => ({ ...d, jobId: id }));
+  };
+
+  const [editJobId, setEditJobId] = useState(null);
+  const [editJob, setEditJob] = useState({ name: "", rate: "" });
+  const startEditJob = (id) => {
+    const j = jobsById[id];
+    if (!j) return;
+    setEditJobId(id);
+    setEditJob({ name: j.name, rate: String(j.rate) });
+  };
+  const cancelEditJob = () => {
+    setEditJobId(null);
+    setEditJob({ name: "", rate: "" });
+  };
+  const saveEditJob = () => {
+    if (!editJobId) return;
+    const name = (editJob.name || "").trim();
+    const rate = Number(editJob.rate);
+    if (!name || !Number.isFinite(rate) || rate <= 0) return;
+    setJobs((prev) => prev.map((j) => (j.id === editJobId ? { ...j, name, rate } : j)));
+    cancelEditJob();
+  };
+
+  const statusLabel = cloudStatus === "synced" ? t.synced : t.local;
+
+  const live = (() => {
+    if (!active) return null;
+    const s = Math.floor((Date.now() - active.startedAt.getTime()) / 1000);
+    return `${pad2(Math.floor(s / 3600))}:${pad2(Math.floor((s % 3600) / 60))}:${pad2(s % 60)}`;
+  })();
+
   return (
-    <div style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
-      {/* HEADER */}
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-        <h2>Ore & Stipendio</h2>
-        <Button variant="secondary" onClick={exportPDF}>
-          PDF
-        </Button>
+    <div style={{ minHeight: "100vh", background: "#f3f3f3", paddingBottom: 92 }}>
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.75 }}>{t.tip}</div>
+            <div style={{ fontSize: 24, fontWeight: 900 }}>{t.appName}</div>
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
+              {t.cloud}: <b>{statusLabel}</b> {user?.email ? ` · ${user.email}` : ""}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <Button variant="secondary" onClick={exportPDF} title="Esporta PDF">
+              {t.pdf}
+            </Button>
+
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value)}
+              style={{ height: 42, borderRadius: 14, border: "1px solid rgba(0,0,0,0.12)", padding: "0 10px" }}
+            >
+              <option value="it">IT</option>
+              <option value="en">EN</option>
+            </select>
+
+            {user ? (
+              <Button variant="secondary" onClick={logout}>
+                {t.signOut}
+              </Button>
+            ) : (
+              <Button onClick={loginGoogle}>{t.signIn}</Button>
+            )}
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 10,
+            marginTop: 14,
+          }}
+        >
+          <Card>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>{t.monthHours}</div>
+            <div style={{ fontSize: 22, fontWeight: 900 }}>{fmt2(monthTotals.hours)}</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>{currentMonth}</div>
+          </Card>
+          <Card>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>{t.monthPay}</div>
+            <div style={{ fontSize: 22, fontWeight: 900 }}>€ {fmt2(monthTotals.pay)}</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              {t.projection}: € {fmt2(monthTotals.projection)}
+            </div>
+          </Card>
+          <Card>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>{t.overtime}</div>
+            <div style={{ fontSize: 12, opacity: 0.85 }}>
+              {t.threshold}: <b>{settings.overtimeThresholdHours}</b>h
+              <br />
+              {t.multiplier}: <b>{settings.overtimeMultiplier}</b>x
+            </div>
+          </Card>
+        </div>
+
+        {/* Grafico */}
+        <div style={{ marginTop: 14 }}>
+          <Card>
+            {dailyData.labels.length ? <Bar data={dailyData} /> : <div style={{ opacity: 0.75 }}>{t.noDataMonth}</div>}
+          </Card>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          {tab === "today" && (
+            <Card>
+              <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+                <div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{t.date}</div>
+                  <Input type="date" value={draft.date} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{t.job}</div>
+                  <select
+                    value={draft.jobId}
+                    onChange={(e) => setDraft((d) => ({ ...d, jobId: e.target.value }))}
+                    style={{
+                      width: "100%",
+                      height: 42,
+                      borderRadius: 14,
+                      border: "1px solid rgba(0,0,0,0.12)",
+                      padding: "0 10px",
+                      background: "rgba(255,255,255,0.92)",
+                    }}
+                  >
+                    {jobs.map((j) => (
+                      <option key={j.id} value={j.id}>
+                        {j.name} — €{Number(j.rate).toFixed(2)}/h
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                {draft.blocks.map((b, i) => (
+                  <div key={i} style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+                    <div>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>{t.from}</div>
+                      <Input type="time" value={b.start} onChange={(e) => updateBlock(i, "start", e.target.value)} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>{t.to}</div>
+                      <Input type="time" value={b.end} onChange={(e) => updateBlock(i, "end", e.target.value)} />
+                    </div>
+                  </div>
+                ))}
+
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <Button variant="secondary" onClick={addBlock}>
+                    {t.addBlock}
+                  </Button>
+                  <Button onClick={active ? stopTimer : startTimer}>{active ? "Stop" : "Start"}</Button>
+                  {active ? <div style={{ fontSize: 14, opacity: 0.85 }}>⏱ {live}</div> : null}
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{t.notes}</div>
+                  <Input value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <Button onClick={saveDay}>{t.saveDay}</Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {tab === "log" && (
+            <Card>
+              {entriesWithComputed.length === 0 ? (
+                <div style={{ opacity: 0.85 }}>{t.empty}</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", fontSize: 12, opacity: 0.75 }}>
+                        <th style={{ padding: "8px 0" }}>{t.date}</th>
+                        <th style={{ padding: "8px 0" }}>{t.job}</th>
+                        <th style={{ padding: "8px 0" }}>h</th>
+                        <th style={{ padding: "8px 0" }}>€</th>
+                        <th style={{ padding: "8px 0" }} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entriesWithComputed.map((e) => (
+                        <tr key={e.id} style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+                          <td style={{ padding: "10px 0", fontWeight: 900 }}>{e.date}</td>
+                          <td style={{ padding: "10px 0" }}>{jobsById[e.jobId]?.name || "-"}</td>
+                          <td style={{ padding: "10px 0" }}>{fmt2(e.hours)}</td>
+                          <td style={{ padding: "10px 0" }}>€ {fmt2(e.pay)}</td>
+                          <td style={{ padding: "10px 0", textAlign: "right" }}>
+                            <Button variant="secondary" onClick={() => deleteEntry(e.id)}>
+                              {t.delete}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {tab === "jobs" && (
+            <Card>
+              <div style={{ fontWeight: 900, marginBottom: 10 }}>{t.newJob}</div>
+              <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr auto" }}>
+                <Input value={newJob.name} onChange={(e) => setNewJob((v) => ({ ...v, name: e.target.value }))} placeholder={t.name} />
+                <Input type="number" value={newJob.rate} onChange={(e) => setNewJob((v) => ({ ...v, rate: e.target.value }))} placeholder={t.rate} />
+                <Button onClick={addJob}>{t.add}</Button>
+              </div>
+
+              <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                {jobs.map((j) => {
+                  const isEditing = editJobId === j.id;
+                  return (
+                    <div
+                      key={j.id}
+                      style={{
+                        padding: 10,
+                        borderRadius: 14,
+                        border: "1px solid rgba(0,0,0,0.06)",
+                        background: "rgba(255,255,255,0.65)",
+                      }}
+                    >
+                      {!isEditing ? (
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                          <div>
+                            <div style={{ fontWeight: 900 }}>{j.name}</div>
+                            <div style={{ fontSize: 12, opacity: 0.8 }}>€ {Number(j.rate).toFixed(2)}/h</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                            <Button variant="secondary" onClick={() => setDraft((d) => ({ ...d, jobId: j.id }))}>
+                              {t.today}
+                            </Button>
+                            <Button variant="secondary" onClick={() => startEditJob(j.id)}>
+                              {t.edit}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 160px" }}>
+                            <Input value={editJob.name} onChange={(e) => setEditJob((v) => ({ ...v, name: e.target.value }))} />
+                            <Input type="number" value={editJob.rate} onChange={(e) => setEditJob((v) => ({ ...v, rate: e.target.value }))} />
+                          </div>
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                            <Button variant="secondary" onClick={cancelEditJob}>
+                              {t.cancel}
+                            </Button>
+                            <Button onClick={saveEditJob}>{t.save}</Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
+          {tab === "settings" && (
+            <Card>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{t.threshold}</div>
+                  <Input type="number" value={settings.overtimeThresholdHours} onChange={(e) => setSettings((s) => ({ ...s, overtimeThresholdHours: Number(e.target.value || 0) }))} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{t.multiplier}</div>
+                  <Input type="number" step="0.01" value={settings.overtimeMultiplier} onChange={(e) => setSettings((s) => ({ ...s, overtimeMultiplier: Number(e.target.value || 1) }))} />
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
       </div>
 
-      {/* TOTALI */}
-      <Card>
-        Ore mese: <b>{fmt2(monthTotals.hours)}</b> | €
-        <b>{fmt2(monthTotals.pay)}</b>
-      </Card>
-
-      {/* TODAY */}
-      {tab === "today" && (
-        <Card>
-          <Input
-            type="date"
-            value={draft.date}
-            onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
-          />
-
-          <select
-            value={draft.jobId}
-            onChange={(e) => setDraft((d) => ({ ...d, jobId: e.target.value }))}
-          >
-            {jobs.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.name} €{j.rate}/h
-              </option>
-            ))}
-          </select>
-
-          {draft.blocks.map((b, i) => (
-            <div key={i}>
-              <Input
-                type="time"
-                value={b.start}
-                onChange={(e) =>
-                  setDraft((d) => {
-                    const blocks = [...d.blocks];
-                    blocks[i].start = e.target.value;
-                    return { ...d, blocks };
-                  })
-                }
-              />
-              <Input
-                type="time"
-                value={b.end}
-                onChange={(e) =>
-                  setDraft((d) => {
-                    const blocks = [...d.blocks];
-                    blocks[i].end = e.target.value;
-                    return { ...d, blocks };
-                  })
-                }
-              />
-            </div>
-          ))}
-
-          <Button onClick={saveDay}>Salva</Button>
-        </Card>
-      )}
-
-      {/* JOBS */}
-      {tab === "jobs" && (
-        <Card>
-          {jobs.map((j) => (
-            <div key={j.id}>
-              {j.name} – €{j.rate}
-            </div>
-          ))}
-        </Card>
-      )}
-
-      {/* SETTINGS */}
-      {tab === "settings" && (
-        <Card>
-          <div>Pausa minuti</div>
-          <Input
-            type="number"
-            value={settings.breakMinutes}
-            onChange={(e) =>
-              setSettings((s) => ({ ...s, breakMinutes: Number(e.target.value) }))
-            }
-          />
-
-          <div>Arrotondamento</div>
-          <select
-            value={settings.roundingMinutes}
-            onChange={(e) =>
-              setSettings((s) => ({ ...s, roundingMinutes: Number(e.target.value) }))
-            }
-          >
-            <option value={0}>0</option>
-            <option value={5}>5</option>
-            <option value={10}>10</option>
-            <option value={15}>15</option>
-          </select>
-        </Card>
-      )}
-
-      {/* NAV */}
-      <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-        <Button onClick={() => setTab("today")}>Oggi</Button>
-        <Button onClick={() => setTab("jobs")}>Lavori</Button>
-        <Button onClick={() => setTab("settings")}>Impostazioni</Button>
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 14, display: "flex", justifyContent: "center" }}>
+        <div style={{ width: "min(520px, calc(100% - 32px))", background: "rgba(255,255,255,0.85)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 20, padding: 8, display: "flex", gap: 8 }}>
+          <NavBtn active={tab === "today"} onClick={() => setTab("today")} label={t.today} />
+          <NavBtn active={tab === "log"} onClick={() => setTab("log")} label={t.log} />
+          <NavBtn active={tab === "jobs"} onClick={() => setTab("jobs")} label={t.jobs} />
+          <NavBtn active={tab === "settings"} onClick={() => setTab("settings")} label={t.settings} />
+        </div>
       </div>
     </div>
+  );
+}
+
+function NavBtn({ active, onClick, label }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        flex: 1,
+        height: 44,
+        borderRadius: 14,
+        border: "none",
+        background: active ? "rgba(0,0,0,0.08)" : "transparent",
+        fontWeight: 900,
+        cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
   );
 }
