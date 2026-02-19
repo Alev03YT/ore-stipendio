@@ -52,7 +52,7 @@ class ErrorBoundary extends React.Component {
             <h2 style={{ margin: 0, fontSize: 22 }}>Qualcosa è andato storto</h2>
 
             <p style={{ opacity: 0.7, fontSize: 14, marginTop: 10 }}>
-              Prova a ricaricare la pagina. Se il problema continua, riprova più tardi.
+              Prova a ricaricare la pagina.
             </p>
 
             <button
@@ -89,26 +89,23 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   </React.StrictMode>
 );
 
-/* -------- DISATTIVA SW + PULISCI QUELLI VECCHI (NO BUG) -------- */
+/* ------------------------------------------------------------------ */
+/* 🔴 DISATTIVA COMPLETAMENTE SERVICE WORKER (era lui il bug grosso) */
+/* ------------------------------------------------------------------ */
+
 (async () => {
   if (!("serviceWorker" in navigator)) return;
 
   try {
-    // Unregister di tutti i service worker
     const regs = await navigator.serviceWorker.getRegistrations();
-    if (regs.length) {
-      await Promise.all(regs.map((r) => r.unregister()));
-    }
+    await Promise.all(regs.map((r) => r.unregister()));
 
-    // Cancella cache
     if ("caches" in window) {
       const keys = await caches.keys();
-      if (keys.length) {
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      }
+      await Promise.all(keys.map((k) => caches.delete(k)));
     }
 
-    // Ricarica UNA sola volta (evita loop)
+    // ricarica UNA sola volta
     const url = new URL(window.location.href);
     if (!url.searchParams.has("sw-clean")) {
       url.searchParams.set("sw-clean", "1");
