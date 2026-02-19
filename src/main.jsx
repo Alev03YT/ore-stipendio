@@ -7,21 +7,15 @@ import "./index.css";
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, err: "" };
+    this.state = { hasError: false };
   }
-
-  static getDerivedStateFromError(err) {
-    return { hasError: true, err: String(err?.message || err) };
+  static getDerivedStateFromError() {
+    return { hasError: true };
   }
-
   componentDidCatch(error, info) {
     console.error("App error:", error, info);
   }
-
-  handleReload = () => {
-    // hard reload
-    window.location.reload();
-  };
+  handleReload = () => window.location.reload();
 
   render() {
     if (this.state.hasError) {
@@ -39,7 +33,7 @@ class ErrorBoundary extends React.Component {
         >
           <div
             style={{
-              maxWidth: 520,
+              maxWidth: 420,
               width: "100%",
               background: "white",
               borderRadius: 20,
@@ -51,28 +45,8 @@ class ErrorBoundary extends React.Component {
             <div style={{ fontSize: 40, marginBottom: 10 }}>⚠️</div>
             <h2 style={{ margin: 0, fontSize: 22 }}>Qualcosa è andato storto</h2>
             <p style={{ opacity: 0.7, fontSize: 14, marginTop: 10 }}>
-              Prova a ricaricare la pagina.
-              <br />
-              Se continua, è quasi sempre cache/Service Worker.
+              Prova a ricaricare la pagina. Se il problema continua, riprova più tardi.
             </p>
-
-            {this.state.err ? (
-              <div
-                style={{
-                  marginTop: 10,
-                  padding: 12,
-                  background: "#f7f7f7",
-                  borderRadius: 14,
-                  fontSize: 12,
-                  textAlign: "left",
-                  maxHeight: 140,
-                  overflow: "auto",
-                }}
-              >
-                {this.state.err}
-              </div>
-            ) : null}
-
             <button
               onClick={this.handleReload}
               style={{
@@ -93,39 +67,10 @@ class ErrorBoundary extends React.Component {
         </div>
       );
     }
-
     return this.props.children;
   }
 }
 
-/* -------- FIX "APP BUGGATA": DISATTIVA SW + PULISCI CACHE (una volta) --------
-   IMPORTANTISSIMO su GitHub Pages: se prima avevi sw.js, rimane attivo e ti serve roba vecchia.
-*/
-(async () => {
-  if (!("serviceWorker" in navigator)) return;
-
-  const url = new URL(window.location.href);
-  const alreadyCleaned = url.searchParams.get("sw_clean") === "1";
-
-  try {
-    const regs = await navigator.serviceWorker.getRegistrations();
-    if (regs.length) await Promise.all(regs.map((r) => r.unregister()));
-
-    if ("caches" in window) {
-      const keys = await caches.keys();
-      if (keys.length) await Promise.all(keys.map((k) => caches.delete(k)));
-    }
-
-    if (!alreadyCleaned) {
-      url.searchParams.set("sw_clean", "1");
-      window.location.replace(url.toString());
-    }
-  } catch (e) {
-    console.warn("SW cleanup failed:", e);
-  }
-})();
-
-/* -------- Render app -------- */
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <ErrorBoundary>
