@@ -89,18 +89,18 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   </React.StrictMode>
 );
 
-/* -------- DISATTIVA SW + PULISCI QUELLI VECCHI (fix "app buggata") -------- */
+/* -------- DISATTIVA SW + PULISCI QUELLI VECCHI (NO BUG) -------- */
 (async () => {
   if (!("serviceWorker" in navigator)) return;
 
   try {
-    // 1) Unregister di tutti i service worker
+    // Unregister di tutti i service worker
     const regs = await navigator.serviceWorker.getRegistrations();
     if (regs.length) {
       await Promise.all(regs.map((r) => r.unregister()));
     }
 
-    // 2) Cancella tutte le cache
+    // Cancella cache
     if ("caches" in window) {
       const keys = await caches.keys();
       if (keys.length) {
@@ -108,24 +108,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       }
     }
 
-    // 3) Ricarica UNA sola volta per evitare loop
-    const url = new URL(window.location.href);
-    if (!url.searchParams.has("sw-clean")) {
-      url.searchParams.set("sw-clean", "1");
-      window.location.replace(url.toString());
-    }
-  } catch (e) {
-    console.warn("SW cleanup failed:", e);
-  }
-})();
-
-    // Pulisci cache (se presente)
-    if ("caches" in window) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-    }
-
-    // Ricarica UNA volta per togliere HTML/JS vecchi dalla PWA
+    // Ricarica UNA sola volta (evita loop)
     const url = new URL(window.location.href);
     if (!url.searchParams.has("sw-clean")) {
       url.searchParams.set("sw-clean", "1");
