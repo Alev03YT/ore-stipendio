@@ -49,10 +49,14 @@ class ErrorBoundary extends React.Component {
           >
             <div style={{ fontSize: 40, marginBottom: 10 }}>⚠️</div>
 
-            <h2 style={{ margin: 0, fontSize: 22 }}>Qualcosa è andato storto</h2>
+            <h2 style={{ margin: 0, fontSize: 22 }}>
+              Qualcosa è andato storto
+            </h2>
 
             <p style={{ opacity: 0.7, fontSize: 14, marginTop: 10 }}>
               Prova a ricaricare la pagina.
+              <br />
+              Se il problema continua, riprova più tardi.
             </p>
 
             <button
@@ -89,29 +93,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   </React.StrictMode>
 );
 
-/* ------------------------------------------------------------------ */
-/* 🔴 DISATTIVA COMPLETAMENTE SERVICE WORKER (era lui il bug grosso) */
-/* ------------------------------------------------------------------ */
-
-(async () => {
-  if (!("serviceWorker" in navigator)) return;
-
-  try {
-    const regs = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(regs.map((r) => r.unregister()));
-
-    if ("caches" in window) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-    }
-
-    // ricarica UNA sola volta
-    const url = new URL(window.location.href);
-    if (!url.searchParams.has("sw-clean")) {
-      url.searchParams.set("sw-clean", "1");
-      window.location.replace(url.toString());
-    }
-  } catch (e) {
-    console.warn("SW cleanup failed:", e);
-  }
-})();
+/*
+⚠️ IMPORTANTE:
+- NESSUN service worker
+- NESSUNA PWA
+Così eliminiamo completamente i bug di cache.
+*/
