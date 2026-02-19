@@ -94,10 +94,30 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   if (!("serviceWorker" in navigator)) return;
 
   try {
+    // 1) Unregister di tutti i service worker
     const regs = await navigator.serviceWorker.getRegistrations();
     if (regs.length) {
       await Promise.all(regs.map((r) => r.unregister()));
     }
+
+    // 2) Cancella tutte le cache
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      if (keys.length) {
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    }
+
+    // 3) Ricarica UNA sola volta per evitare loop
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("sw-clean")) {
+      url.searchParams.set("sw-clean", "1");
+      window.location.replace(url.toString());
+    }
+  } catch (e) {
+    console.warn("SW cleanup failed:", e);
+  }
+})();
 
     // Pulisci cache (se presente)
     if ("caches" in window) {
