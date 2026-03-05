@@ -508,7 +508,7 @@ export default function App() {
 
     const headerH = 30;
     const footerH = 14;
-    const contentTop = top + headerH + 6;
+    const contentTop = top + headerH + 18;
     const contentBottom = bottom - footerH;
 
     // Labels
