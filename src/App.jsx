@@ -555,14 +555,12 @@ export default function App() {
 
     // Table layout
     const gap = 2;
-    const colDateW = 28;
-    const colJobW = 46;
-    const colHoursW = 18;
-    const colTimesW = (right - left) - colDateW - colJobW - colHoursW - gap * 3;
+    const colDateW = 40;
+    const colHoursW = 25;
+    const colTimesW = (right - left) - colDateW - colHoursW - gap * 2;
 
     const xDate = left;
-    const xJob = xDate + colDateW + gap;
-    const xTimes = xJob + colJobW + gap;
+    const xTimes = xDate + colDateW + gap;
     const xHours = xTimes + colTimesW + gap;
 
     // ✅ anti-sballo: passo righe più grande
@@ -683,7 +681,6 @@ export default function App() {
       docPdf.setTextColor(20);
 
       docPdf.text(lang === "it" ? "Data" : "Date", xDate + 1, y);
-      docPdf.text(lang === "it" ? "Lavoro" : "Job", xJob + 1, y);
       docPdf.text(lang === "it" ? "Orari" : "Times", xTimes + 1, y);
 
       const hLabel = "h";
@@ -712,11 +709,9 @@ export default function App() {
       const e = monthRows[i];
 
       const dateTxt = e.date || "—";
-      const jobTxt = jobsById[e.jobId]?.name || "-";
       const timesTxt = formatTimes(e);
       const hoursTxt = fmt2(e.hours);
 
-      const jobLines = wrap(jobTxt, colJobW);
       const timesLines = wrap(timesTxt, colTimesW);
       const linesCount = Math.max(jobLines.length, timesLines.length, 1);
       const rowH = 6 + (linesCount - 1) * LINE_STEP;
@@ -744,11 +739,6 @@ export default function App() {
 
       // Date
       docPdf.text(trunc(dateTxt, colDateW), xDate + 1, y);
-
-      // Job
-      for (let li = 0; li < jobLines.length; li++) {
-        docPdf.text(trunc(jobLines[li], colJobW), xJob + 1, y + li * LINE_STEP);
-      }
 
       // Times
       for (let li = 0; li < timesLines.length; li++) {
