@@ -241,6 +241,12 @@ const I18N = {
     eurosPerDay: "€ per giorno",
     pdf: "PDF",
     edit: "Modifica",
+
+    // ✅ nuovi testi per PDF ore
+    reportMonth: "Mese",
+    pdfHours: "PDF Ore",
+    monthlyHoursSummary: "Riepilogo ore mensile",
+    dailyDetails: "Dettaglio giorni",
   },
   en: {
     appName: "Hours & Pay",
@@ -279,6 +285,12 @@ const I18N = {
     eurosPerDay: "€ per day",
     pdf: "PDF",
     edit: "Edit",
+
+    // ✅ new texts for hours PDF
+    reportMonth: "Month",
+    pdfHours: "Hours PDF",
+    monthlyHoursSummary: "Monthly hours summary",
+    dailyDetails: "Daily details",
   },
 };
 
@@ -402,6 +414,17 @@ export default function App() {
 
   const currentMonth = todayISO().slice(0, 7);
 
+  // ✅ mesi disponibili per il download
+  const monthsAvailable = useMemo(() => {
+    const set = new Set((entries || []).map((e) => (e.date || "").slice(0, 7)).filter(Boolean));
+    set.add(currentMonth);
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [entries, currentMonth]);
+
+  // ✅ mese selezionato per il PDF ore
+  const [reportMonth, setReportMonth] = useState(currentMonth);
+
+  // Totali “visivi” mese corrente (come prima)
   const monthTotals = useMemo(() => {
     const list = entriesWithComputed.filter((e) => monthKey(e.date) === currentMonth);
     const hours = list.reduce((s, e) => s + e.hours, 0);
@@ -426,6 +449,13 @@ export default function App() {
     return { hours, pay, projection };
   }, [entriesWithComputed, currentMonth]);
 
+  // ✅ Totale ore SOLO del mese selezionato per il PDF (senza €)
+  const reportTotals = useMemo(() => {
+    const list = entriesWithComputed.filter((e) => monthKey(e.date) === reportMonth);
+    const hours = list.reduce((s, e) => s + e.hours, 0);
+    return { hours };
+  }, [entriesWithComputed, reportMonth]);
+
   const dailyData = useMemo(() => {
     const days = {};
     entriesWithComputed.forEach((e) => {
@@ -446,42 +476,33 @@ export default function App() {
     };
   }, [entriesWithComputed, currentMonth, t.eurosPerDay]);
 
-  /* ---------- PDF ---------- */
-  const exportPDF = () => {
+  /* ---------- PDF ORE (senza €) ---------- */
+  const exportPDFHours = () => {
     const docPdf = new jsPDF();
 
-    const title = lang === "it" ? "Riepilogo mensile" : "Monthly summary";
     docPdf.setFontSize(16);
-    docPdf.text(`${title} - ${currentMonth}`, 14, 18);
+    docPdf.text(`${t.monthlyHoursSummary} - ${reportMonth}`, 14, 18);
 
     docPdf.setFontSize(11);
     const email = user?.email ? user.email : lang === "it" ? "Non loggato" : "Not logged in";
     docPdf.text(`Email: ${email}`, 14, 26);
 
-    docPdf.text(`${t.monthHours}: ${fmt2(monthTotals.hours)}`, 14, 36);
-    docPdf.text(`${t.monthPay}: € ${fmt2(monthTotals.pay)}`, 14, 44);
-    docPdf.text(`${t.projection}: € ${fmt2(monthTotals.projection)}`, 14, 52);
+    docPdf.text(`${t.monthHours}: ${fmt2(reportTotals.hours)}`, 14, 36);
 
-    docPdf.text(
-      `${t.overtime}: ${settings.overtimeThresholdHours}h, x${settings.overtimeMultiplier}`,
-      14,
-      62
-    );
-
-    let y = 74;
+    let y = 50;
     docPdf.setFontSize(12);
-    docPdf.text(lang === "it" ? "Dettaglio giorni" : "Daily details", 14, y);
+    docPdf.text(t.dailyDetails, 14, y);
     y += 8;
 
     docPdf.setFontSize(10);
-    docPdf.text(lang === "it" ? "Data" : "Date", 14, y);
-    docPdf.text(lang === "it" ? "Lavoro" : "Job", 50, y);
-    docPdf.text("h", 120, y);
-    docPdf.text("€", 140, y);
+    docPdf.text(t.date, 14, y);
+    docPdf.text(t.job, 48, y);
+    docPdf.text(t.times, 90, y);
+    docPdf.text("h", 175, y);
     y += 6;
 
     const monthRows = entriesWithComputed
-      .filter((e) => monthKey(e.date) === currentMonth)
+      .filter((e) => monthKey(e.date) === reportMonth)
       .sort((a, b) => a.date.localeCompare(b.date));
 
     for (const e of monthRows) {
@@ -489,15 +510,23 @@ export default function App() {
         docPdf.addPage();
         y = 20;
       }
+
       const jobName = jobsById[e.jobId]?.name || "-";
+      const timesStr =
+        (e.blocks || [])
+          .filter((b) => b?.start && b?.end)
+          .map((b) => `${b.start}-${b.end}`)
+          .join(" / ") || "-";
+
       docPdf.text(String(e.date), 14, y);
-      docPdf.text(String(jobName).slice(0, 22), 50, y);
-      docPdf.text(fmt2(e.hours), 120, y);
-      docPdf.text(fmt2(e.pay), 140, y);
+      docPdf.text(String(jobName).slice(0, 18), 48, y);
+      docPdf.text(String(timesStr).slice(0, 45), 90, y);
+      docPdf.text(fmt2(e.hours), 175, y);
+
       y += 6;
     }
 
-    const filename = `ore-stipendio_${currentMonth}.pdf`;
+    const filename = `ore_${reportMonth}.pdf`;
     docPdf.save(filename);
   };
 
@@ -631,8 +660,22 @@ export default function App() {
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <Button variant="secondary" onClick={exportPDF} title="Esporta PDF">
-              {t.pdf}
+            {/* ✅ selezione mese + PDF Ore */}
+            <select
+              value={reportMonth}
+              onChange={(e) => setReportMonth(e.target.value)}
+              style={{ height: 42, borderRadius: 14, border: "1px solid rgba(0,0,0,0.12)", padding: "0 10px" }}
+              title={t.reportMonth}
+            >
+              {monthsAvailable.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+
+            <Button variant="secondary" onClick={exportPDFHours} title={t.pdfHours}>
+              {t.pdfHours}
             </Button>
 
             <select
@@ -654,7 +697,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Top cards */}
+        {/* Top cards (come prima: qui ancora mostra anche € nell'app, NON nel PDF) */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginTop: 14 }}>
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.monthHours}</div>
@@ -699,7 +742,11 @@ export default function App() {
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.date}</div>
-                  <Input type="date" value={draft.date} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
+                  <Input
+                    type="date"
+                    value={draft.date}
+                    onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
+                  />
                 </div>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.job}</div>
@@ -748,7 +795,11 @@ export default function App() {
 
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.notes}</div>
-                  <Input value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} placeholder={t.notes} />
+                  <Input
+                    value={draft.notes}
+                    onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+                    placeholder={t.notes}
+                  />
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -776,18 +827,26 @@ export default function App() {
                         <th style={{ padding: "8px 0" }} />
                       </tr>
                     </thead>
+
                     <tbody>
                       {entriesWithComputed.map((e) => (
                         <tr key={e.id} style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
                           <td style={{ padding: "10px 0", fontWeight: 900 }}>{e.date}</td>
                           <td style={{ padding: "10px 0" }}>{jobsById[e.jobId]?.name || "-"}</td>
 
-                          {/* ✅ ORARI (mostra tutti i blocchi salvati) */}
+                          {/* ✅ ORARI (uno per riga, più leggibile su mobile) */}
                           <td style={{ padding: "10px 0" }}>
-                            {(e.blocks || [])
-                              .filter((b) => b?.start && b?.end)
-                              .map((b) => `${b.start}-${b.end}`)
-                              .join(" / ") || "-"}
+                            {(e.blocks || []).filter((b) => b?.start && b?.end).length ? (
+                              (e.blocks || [])
+                                .filter((b) => b?.start && b?.end)
+                                .map((b, i) => (
+                                  <div key={i}>
+                                    {b.start}-{b.end}
+                                  </div>
+                                ))
+                            ) : (
+                              <span style={{ opacity: 0.6 }}>—</span>
+                            )}
                           </td>
 
                           <td style={{ padding: "10px 0" }}>{fmt2(e.hours)}</td>
@@ -811,8 +870,17 @@ export default function App() {
             <Card>
               <div style={{ fontWeight: 900, marginBottom: 10 }}>{t.newJob}</div>
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr auto" }}>
-                <Input value={newJob.name} onChange={(e) => setNewJob((v) => ({ ...v, name: e.target.value }))} placeholder={t.name} />
-                <Input type="number" value={newJob.rate} onChange={(e) => setNewJob((v) => ({ ...v, rate: e.target.value }))} placeholder={t.rate} />
+                <Input
+                  value={newJob.name}
+                  onChange={(e) => setNewJob((v) => ({ ...v, name: e.target.value }))}
+                  placeholder={t.name}
+                />
+                <Input
+                  type="number"
+                  value={newJob.rate}
+                  onChange={(e) => setNewJob((v) => ({ ...v, rate: e.target.value }))}
+                  placeholder={t.rate}
+                />
                 <Button onClick={addJob}>{t.add}</Button>
               </div>
 
@@ -832,11 +900,7 @@ export default function App() {
                       background: "rgba(255,255,255,0.65)",
                     }}
                   >
-                    <Input
-                      value={j.name}
-                      onChange={(e) => updateJob(j.id, { name: e.target.value })}
-                      placeholder={t.name}
-                    />
+                    <Input value={j.name} onChange={(e) => updateJob(j.id, { name: e.target.value })} placeholder={t.name} />
                     <Input
                       type="number"
                       value={String(j.rate)}
