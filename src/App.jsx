@@ -217,6 +217,7 @@ const I18N = {
     local: "Solo locale",
     date: "Data",
     job: "Lavoro",
+    times: "Orari",
     from: "Da",
     to: "A",
     addBlock: "Aggiungi blocco",
@@ -254,6 +255,7 @@ const I18N = {
     local: "Local only",
     date: "Date",
     job: "Job",
+    times: "Times",
     from: "From",
     to: "To",
     addBlock: "Add block",
@@ -768,6 +770,7 @@ export default function App() {
                       <tr style={{ textAlign: "left", fontSize: 12, opacity: 0.75 }}>
                         <th style={{ padding: "8px 0" }}>{t.date}</th>
                         <th style={{ padding: "8px 0" }}>{t.job}</th>
+                        <th style={{ padding: "8px 0" }}>{t.times}</th>
                         <th style={{ padding: "8px 0" }}>h</th>
                         <th style={{ padding: "8px 0" }}>€</th>
                         <th style={{ padding: "8px 0" }} />
@@ -778,6 +781,15 @@ export default function App() {
                         <tr key={e.id} style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
                           <td style={{ padding: "10px 0", fontWeight: 900 }}>{e.date}</td>
                           <td style={{ padding: "10px 0" }}>{jobsById[e.jobId]?.name || "-"}</td>
+
+                          {/* ✅ ORARI (mostra tutti i blocchi salvati) */}
+                          <td style={{ padding: "10px 0" }}>
+                            {(e.blocks || [])
+                              .filter((b) => b?.start && b?.end)
+                              .map((b) => `${b.start}-${b.end}`)
+                              .join(" / ") || "-"}
+                          </td>
+
                           <td style={{ padding: "10px 0" }}>{fmt2(e.hours)}</td>
                           <td style={{ padding: "10px 0" }}>€ {fmt2(e.pay)}</td>
                           <td style={{ padding: "10px 0", textAlign: "right" }}>
