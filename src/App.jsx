@@ -538,7 +538,7 @@ export default function App() {
     const now = new Date();
     const printedAtStr = `${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}/${now.getFullYear()}`;
 
-    const employeeName = user?.email ? user.email : (lang === "it" ? "Non loggato" : "Not logged in");
+    const employeeName = "Alessandro Valerio";
 
     const line = (x1, y1, x2, y2) => docPdf.line(x1, y1, x2, y2);
 
