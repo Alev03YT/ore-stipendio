@@ -105,6 +105,16 @@ const todayISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 };
+
+function formatDateIT(iso) {
+  if (!iso) return "";
+  const giorni = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
+  const [y, m, d] = iso.split("-");
+  const dt = new Date(Number(y), Number(m) - 1, Number(d));
+  const giorno = giorni[dt.getDay()];
+  return `${giorno} ${d}/${m}/${y}`;
+}
+
 const parseTimeToMinutes = (hhmm) => {
   const [h, m] = (hhmm || "").split(":").map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
@@ -244,7 +254,6 @@ const I18N = {
     eurosPerDay: "€ per giorno",
     edit: "Modifica",
 
-    // ✅ PDF ORE
     reportMonth: "Mese",
     pdfHours: "PDF Ore",
   },
@@ -285,7 +294,6 @@ const I18N = {
     eurosPerDay: "€ per day",
     edit: "Edit",
 
-    // ✅ Hours PDF
     reportMonth: "Month",
     pdfHours: "Hours PDF",
   },
@@ -493,11 +501,10 @@ export default function App() {
     };
   }, [entriesWithComputed, currentMonth, t.eurosPerDay]);
 
-  /* ---------- PDF ORE (PRO, logo, niente €) ---------- */
+  /* ---------- PDF ORE (PRO, logo, niente €, senza colonna lavoro) ---------- */
   const exportPDFHours = async () => {
     const docPdf = new jsPDF({ unit: "mm", format: "a4" });
 
-    // Page constants
     const pageW = docPdf.internal.pageSize.getWidth(); // 210
     const pageH = docPdf.internal.pageSize.getHeight(); // 297
     const margin = 12;
@@ -508,10 +515,10 @@ export default function App() {
 
     const headerH = 30;
     const footerH = 14;
+    // ✅ più spazio: niente sovrapposizioni con titolo / meta
     const contentTop = top + headerH + 18;
     const contentBottom = bottom - footerH;
 
-    // Labels
     const title = lang === "it" ? "RIEPILOGO ORE MENSILE" : "MONTHLY HOURS REPORT";
     const employeeLabel = lang === "it" ? "Dipendente" : "Employee";
     const monthLabel = lang === "it" ? "Mese" : "Month";
@@ -519,6 +526,8 @@ export default function App() {
     const printedLabel = lang === "it" ? "Stampato il" : "Printed on";
     const signEmp = lang === "it" ? "Firma dipendente" : "Employee signature";
     const signBoss = lang === "it" ? "Firma responsabile" : "Manager signature";
+    const bottomTotalLabel = lang === "it" ? "Totale ore lavorate nel mese" : "Total hours worked in month";
+    const oreLabel = lang === "it" ? "Ore" : "Hours";
 
     const monthRows = entriesWithComputed
       .filter((e) => monthKey(e.date) === reportMonth)
@@ -527,13 +536,10 @@ export default function App() {
     const totalHours = reportTotals?.hours ?? monthRows.reduce((s, e) => s + (e.hours || 0), 0);
 
     const now = new Date();
-    const printedAtStr =
-      `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+    const printedAtStr = `${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}/${now.getFullYear()}`;
 
-    // Se vuoi un nome fisso invece della mail, cambialo qui:
     const employeeName = user?.email ? user.email : (lang === "it" ? "Non loggato" : "Not logged in");
 
-    // Helpers
     const line = (x1, y1, x2, y2) => docPdf.line(x1, y1, x2, y2);
 
     const trunc = (txt, maxW) => {
@@ -549,31 +555,29 @@ export default function App() {
     const formatTimes = (e) => {
       const blocks = (e.blocks || []).filter((b) => b?.start && b?.end);
       if (!blocks.length) return "—";
-      // ✅ uno per riga (più leggibile e “professionale”)
       return blocks.map((b) => `${b.start} - ${b.end}`).join("\n");
     };
 
-    // Table layout
+    // Table layout (PDF) -> Data | Orari | Ore
     const gap = 2;
-    const colDateW = 40;
-    const colHoursW = 25;
+    const colDateW = 46; // più largo perché "Lun 16/02/2026"
+    const colHoursW = 22;
     const colTimesW = (right - left) - colDateW - colHoursW - gap * 2;
 
     const xDate = left;
     const xTimes = xDate + colDateW + gap;
     const xHours = xTimes + colTimesW + gap;
 
-    // ✅ anti-sballo: passo righe più grande
-    const LINE_STEP = 5; // mm
+    // Anti-sballo: passo righe
+    const LINE_STEP = 5;
 
-    // Pagination pre-pass (calcolo pagine in base a wrap reale)
+    // Pagination pre-pass
     docPdf.setFont("helvetica", "normal");
     docPdf.setFontSize(9);
 
     const rowHeights = monthRows.map((e) => {
-      const jobLines = wrap(jobsById[e.jobId]?.name || "-", colJobW);
       const timesLines = wrap(formatTimes(e), colTimesW);
-      const linesCount = Math.max(jobLines.length, timesLines.length, 1);
+      const linesCount = Math.max(timesLines.length, 1);
       return 6 + (linesCount - 1) * LINE_STEP;
     });
 
@@ -590,7 +594,7 @@ export default function App() {
       used += h;
     }
 
-    // Precarica logo (se fallisce, stampa comunque senza logo)
+    // Logo
     let logoDataUrl = null;
     try {
       logoDataUrl = await loadImageToDataUrl(logoUrl);
@@ -599,17 +603,12 @@ export default function App() {
     }
 
     const drawHeader = (pageNo) => {
-      // Header band
       docPdf.setFillColor(245, 246, 248);
       docPdf.rect(0, 0, pageW, headerH + top, "F");
 
-      // Logo
       const logoSize = 16;
-      if (logoDataUrl) {
-        docPdf.addImage(logoDataUrl, "PNG", left, top + 6, logoSize, logoSize);
-      }
+      if (logoDataUrl) docPdf.addImage(logoDataUrl, "PNG", left, top + 6, logoSize, logoSize);
 
-      // Azienda + Titolo (accanto al logo)
       const textX = left + (logoDataUrl ? logoSize + 6 : 0);
 
       docPdf.setFont("helvetica", "bold");
@@ -620,14 +619,12 @@ export default function App() {
       docPdf.setFontSize(15);
       docPdf.text(title, textX, top + 19);
 
-      // Meta info (sotto)
       docPdf.setFont("helvetica", "normal");
       docPdf.setFontSize(10);
       docPdf.setTextColor(60);
       docPdf.text(`${monthLabel}: ${reportMonth}`, left, top + 27);
       docPdf.text(`${employeeLabel}: ${employeeName}`, left, top + 32);
 
-      // Totale ore box (dx)
       const boxW = 58;
       const boxH = 16;
       const boxX = right - boxW;
@@ -646,14 +643,12 @@ export default function App() {
       docPdf.setTextColor(20);
       docPdf.text(`${fmt2(totalHours)} h`, boxX + 4, boxY + 12);
 
-      // Page number (top-right)
       docPdf.setFont("helvetica", "normal");
       docPdf.setFontSize(9);
       docPdf.setTextColor(90);
       const pageStr = `${pageNo}/${totalPages}`;
       docPdf.text(pageStr, right - docPdf.getTextWidth(pageStr), top + 9);
 
-      // Divider
       docPdf.setDrawColor(210);
       line(left, contentTop - 3, right, contentTop - 3);
     };
@@ -666,6 +661,7 @@ export default function App() {
       docPdf.setFont("helvetica", "normal");
       docPdf.setFontSize(9);
       docPdf.setTextColor(90);
+
       docPdf.text(`${printedLabel}: ${printedAtStr}`, left, y - 3);
 
       const pageStr = `${pageNo}/${totalPages}`;
@@ -683,8 +679,7 @@ export default function App() {
       docPdf.text(lang === "it" ? "Data" : "Date", xDate + 1, y);
       docPdf.text(lang === "it" ? "Orari" : "Times", xTimes + 1, y);
 
-      const hLabel = "h";
-      docPdf.text(hLabel, xHours + colHoursW - docPdf.getTextWidth(hLabel) - 1, y);
+      docPdf.text(oreLabel, xHours + colHoursW - docPdf.getTextWidth(oreLabel) - 1, y);
 
       docPdf.setDrawColor(200);
       line(left, y + 2.5, right, y + 2.5);
@@ -708,15 +703,14 @@ export default function App() {
     for (let i = 0; i < monthRows.length; i++) {
       const e = monthRows[i];
 
-      const dateTxt = e.date || "—";
+      const dateTxt = formatDateIT(e.date) || "—";
       const timesTxt = formatTimes(e);
       const hoursTxt = fmt2(e.hours);
 
       const timesLines = wrap(timesTxt, colTimesW);
-      const linesCount = Math.max(jobLines.length, timesLines.length, 1);
+      const linesCount = Math.max(timesLines.length, 1);
       const rowH = 6 + (linesCount - 1) * LINE_STEP;
 
-      // Page break
       if (y + rowH > contentBottom) {
         drawFooter(pageNo);
         docPdf.addPage();
@@ -731,24 +725,19 @@ export default function App() {
         docPdf.setTextColor(25);
       }
 
-      // Alternate row fill
       if (rowIndex % 2 === 0) {
         docPdf.setFillColor(252, 252, 252);
         docPdf.rect(left, y - 5, right - left, rowH, "F");
       }
 
-      // Date
       docPdf.text(trunc(dateTxt, colDateW), xDate + 1, y);
 
-      // Times
       for (let li = 0; li < timesLines.length; li++) {
         docPdf.text(trunc(timesLines[li], colTimesW), xTimes + 1, y + li * LINE_STEP);
       }
 
-      // Hours right aligned
       docPdf.text(hoursTxt, xHours + colHoursW - docPdf.getTextWidth(hoursTxt) - 1, y);
 
-      // Divider
       docPdf.setDrawColor(235);
       line(left, y + rowH - 1.5, right, y + rowH - 1.5);
 
@@ -756,9 +745,9 @@ export default function App() {
       rowIndex += 1;
     }
 
-    // Signature area (last page)
-    const signBlockH = 26;
-    if (y + signBlockH > contentBottom) {
+    // ✅ Totale ore in fondo + firme
+    const totalAndSignH = 42;
+    if (y + totalAndSignH > contentBottom) {
       drawFooter(pageNo);
       docPdf.addPage();
       pageNo += 1;
@@ -770,6 +759,18 @@ export default function App() {
     }
 
     y += 6;
+
+    docPdf.setFont("helvetica", "bold");
+    docPdf.setFontSize(11);
+    docPdf.setTextColor(20);
+    docPdf.text(`${bottomTotalLabel}: ${fmt2(totalHours)} h`, left, y);
+
+    y += 6;
+    docPdf.setDrawColor(180);
+    line(left, y, right, y);
+
+    y += 8;
+
     docPdf.setFont("helvetica", "bold");
     docPdf.setFontSize(10);
     docPdf.setTextColor(30);
@@ -934,11 +935,7 @@ export default function App() {
               ))}
             </select>
 
-            <Button
-              variant="secondary"
-              onClick={() => exportPDFHours()}
-              title={t.pdfHours}
-            >
+            <Button variant="secondary" onClick={() => exportPDFHours()} title={t.pdfHours}>
               {t.pdfHours}
             </Button>
 
@@ -1090,7 +1087,7 @@ export default function App() {
                           <td style={{ padding: "10px 0", fontWeight: 900 }}>{e.date}</td>
                           <td style={{ padding: "10px 0" }}>{jobsById[e.jobId]?.name || "-"}</td>
 
-                          {/* ✅ ORARI (uno per riga, mobile friendly) */}
+                          {/* ✅ ORARI (uno per riga) */}
                           <td style={{ padding: "10px 0" }}>
                             {(e.blocks || []).filter((b) => b?.start && b?.end).length ? (
                               (e.blocks || [])
