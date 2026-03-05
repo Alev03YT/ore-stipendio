@@ -18,6 +18,9 @@ import {
 } from "firebase/auth";
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
+// ✅ Logo azienda (mettilo in: src/assets/logo-apostolo.png)
+import logoUrl from "./assets/logo-apostolo.png";
+
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 
 /** ✅ tua config Firebase */
@@ -239,14 +242,11 @@ const I18N = {
     tip: "Suggerimento: aggiungi alla Home per usarla come app.",
     noDataMonth: "Nessun dato per questo mese.",
     eurosPerDay: "€ per giorno",
-    pdf: "PDF",
     edit: "Modifica",
 
-    // ✅ nuovi testi per PDF ore
+    // ✅ PDF ORE
     reportMonth: "Mese",
     pdfHours: "PDF Ore",
-    monthlyHoursSummary: "Riepilogo ore mensile",
-    dailyDetails: "Dettaglio giorni",
   },
   en: {
     appName: "Hours & Pay",
@@ -283,16 +283,38 @@ const I18N = {
     tip: "Tip: add to Home Screen to use it like an app.",
     noDataMonth: "No data for this month.",
     eurosPerDay: "€ per day",
-    pdf: "PDF",
     edit: "Edit",
 
-    // ✅ new texts for hours PDF
+    // ✅ Hours PDF
     reportMonth: "Month",
     pdfHours: "Hours PDF",
-    monthlyHoursSummary: "Monthly hours summary",
-    dailyDetails: "Daily details",
   },
 };
+
+/* ✅ azienda */
+const COMPANY_NAME = "Apicoltura Apostolo";
+
+/* Converte un'immagine (importata da Vite/React) in dataURL per jsPDF */
+function loadImageToDataUrl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
 
 export default function App() {
   const [tab, setTab] = useState("today");
@@ -302,7 +324,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [cloudStatus, setCloudStatus] = useState("local"); // local | syncing | synced
 
-  // ✅ default “sensato”: puoi cambiarlo in Lavori
+  // ✅ default “sensato”
   const [jobs, setJobs] = useState([{ id: "default", name: "Lavoro", rate: 10 }]);
   const [entries, setEntries] = useState([]);
   const [settings, setSettings] = useState({ overtimeThresholdHours: 40, overtimeMultiplier: 1.25 });
@@ -414,17 +436,17 @@ export default function App() {
 
   const currentMonth = todayISO().slice(0, 7);
 
-  // ✅ mesi disponibili per il download
+  // ✅ mesi disponibili
   const monthsAvailable = useMemo(() => {
     const set = new Set((entries || []).map((e) => (e.date || "").slice(0, 7)).filter(Boolean));
     set.add(currentMonth);
     return Array.from(set).sort((a, b) => b.localeCompare(a));
   }, [entries, currentMonth]);
 
-  // ✅ mese selezionato per il PDF ore
+  // ✅ mese selezionato per PDF
   const [reportMonth, setReportMonth] = useState(currentMonth);
 
-  // Totali “visivi” mese corrente (come prima)
+  // Totali mese corrente (app)
   const monthTotals = useMemo(() => {
     const list = entriesWithComputed.filter((e) => monthKey(e.date) === currentMonth);
     const hours = list.reduce((s, e) => s + e.hours, 0);
@@ -449,7 +471,7 @@ export default function App() {
     return { hours, pay, projection };
   }, [entriesWithComputed, currentMonth]);
 
-  // ✅ Totale ore SOLO del mese selezionato per il PDF (senza €)
+  // Totale ore per PDF (mese selezionato)
   const reportTotals = useMemo(() => {
     const list = entriesWithComputed.filter((e) => monthKey(e.date) === reportMonth);
     const hours = list.reduce((s, e) => s + e.hours, 0);
@@ -467,67 +489,315 @@ export default function App() {
     const values = labels.map((d) => days[d]);
     return {
       labels,
-      datasets: [
-        {
-          label: t.eurosPerDay,
-          data: values,
-        },
-      ],
+      datasets: [{ label: t.eurosPerDay, data: values }],
     };
   }, [entriesWithComputed, currentMonth, t.eurosPerDay]);
 
-  /* ---------- PDF ORE (senza €) ---------- */
-  const exportPDFHours = () => {
-    const docPdf = new jsPDF();
+  /* ---------- PDF ORE (PRO, logo, niente €) ---------- */
+  const exportPDFHours = async () => {
+    const docPdf = new jsPDF({ unit: "mm", format: "a4" });
 
-    docPdf.setFontSize(16);
-    docPdf.text(`${t.monthlyHoursSummary} - ${reportMonth}`, 14, 18);
+    // Page constants
+    const pageW = docPdf.internal.pageSize.getWidth(); // 210
+    const pageH = docPdf.internal.pageSize.getHeight(); // 297
+    const margin = 12;
+    const left = margin;
+    const right = pageW - margin;
+    const top = margin;
+    const bottom = pageH - margin;
 
-    docPdf.setFontSize(11);
-    const email = user?.email ? user.email : lang === "it" ? "Non loggato" : "Not logged in";
-    docPdf.text(`Email: ${email}`, 14, 26);
+    const headerH = 30;
+    const footerH = 14;
+    const contentTop = top + headerH + 6;
+    const contentBottom = bottom - footerH;
 
-    docPdf.text(`${t.monthHours}: ${fmt2(reportTotals.hours)}`, 14, 36);
-
-    let y = 50;
-    docPdf.setFontSize(12);
-    docPdf.text(t.dailyDetails, 14, y);
-    y += 8;
-
-    docPdf.setFontSize(10);
-    docPdf.text(t.date, 14, y);
-    docPdf.text(t.job, 48, y);
-    docPdf.text(t.times, 90, y);
-    docPdf.text("h", 175, y);
-    y += 6;
+    // Labels
+    const title = lang === "it" ? "RIEPILOGO ORE MENSILE" : "MONTHLY HOURS REPORT";
+    const employeeLabel = lang === "it" ? "Dipendente" : "Employee";
+    const monthLabel = lang === "it" ? "Mese" : "Month";
+    const totalLabel = lang === "it" ? "Totale ore" : "Total hours";
+    const printedLabel = lang === "it" ? "Stampato il" : "Printed on";
+    const signEmp = lang === "it" ? "Firma dipendente" : "Employee signature";
+    const signBoss = lang === "it" ? "Firma responsabile" : "Manager signature";
 
     const monthRows = entriesWithComputed
       .filter((e) => monthKey(e.date) === reportMonth)
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    for (const e of monthRows) {
-      if (y > 285) {
-        docPdf.addPage();
-        y = 20;
+    const totalHours = reportTotals?.hours ?? monthRows.reduce((s, e) => s + (e.hours || 0), 0);
+
+    const now = new Date();
+    const printedAtStr =
+      `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+
+    // Se vuoi un nome fisso invece della mail, cambialo qui:
+    const employeeName = user?.email ? user.email : (lang === "it" ? "Non loggato" : "Not logged in");
+
+    // Helpers
+    const line = (x1, y1, x2, y2) => docPdf.line(x1, y1, x2, y2);
+
+    const trunc = (txt, maxW) => {
+      const s = String(txt ?? "");
+      if (docPdf.getTextWidth(s) <= maxW) return s;
+      let out = s;
+      while (out.length && docPdf.getTextWidth(out + "…") > maxW) out = out.slice(0, -1);
+      return out ? out + "…" : "";
+    };
+
+    const wrap = (txt, maxW) => docPdf.splitTextToSize(String(txt ?? ""), maxW);
+
+    const formatTimes = (e) => {
+      const blocks = (e.blocks || []).filter((b) => b?.start && b?.end);
+      if (!blocks.length) return "—";
+      // ✅ uno per riga (più leggibile e “professionale”)
+      return blocks.map((b) => `${b.start} - ${b.end}`).join("\n");
+    };
+
+    // Table layout
+    const gap = 2;
+    const colDateW = 28;
+    const colJobW = 46;
+    const colHoursW = 18;
+    const colTimesW = (right - left) - colDateW - colJobW - colHoursW - gap * 3;
+
+    const xDate = left;
+    const xJob = xDate + colDateW + gap;
+    const xTimes = xJob + colJobW + gap;
+    const xHours = xTimes + colTimesW + gap;
+
+    // ✅ anti-sballo: passo righe più grande
+    const LINE_STEP = 5; // mm
+
+    // Pagination pre-pass (calcolo pagine in base a wrap reale)
+    docPdf.setFont("helvetica", "normal");
+    docPdf.setFontSize(9);
+
+    const rowHeights = monthRows.map((e) => {
+      const jobLines = wrap(jobsById[e.jobId]?.name || "-", colJobW);
+      const timesLines = wrap(formatTimes(e), colTimesW);
+      const linesCount = Math.max(jobLines.length, timesLines.length, 1);
+      return 6 + (linesCount - 1) * LINE_STEP;
+    });
+
+    const tableHeaderH = 12;
+    const usableH = (contentBottom - contentTop) - tableHeaderH;
+
+    let totalPages = 1;
+    let used = 0;
+    for (const h of rowHeights) {
+      if (used + h > usableH) {
+        totalPages += 1;
+        used = 0;
       }
-
-      const jobName = jobsById[e.jobId]?.name || "-";
-      const timesStr =
-        (e.blocks || [])
-          .filter((b) => b?.start && b?.end)
-          .map((b) => `${b.start}-${b.end}`)
-          .join(" / ") || "-";
-
-      docPdf.text(String(e.date), 14, y);
-      docPdf.text(String(jobName).slice(0, 18), 48, y);
-      docPdf.text(String(timesStr).slice(0, 45), 90, y);
-      docPdf.text(fmt2(e.hours), 175, y);
-
-      y += 6;
+      used += h;
     }
 
-    const filename = `ore_${reportMonth}.pdf`;
-    docPdf.save(filename);
+    // Precarica logo (se fallisce, stampa comunque senza logo)
+    let logoDataUrl = null;
+    try {
+      logoDataUrl = await loadImageToDataUrl(logoUrl);
+    } catch {
+      logoDataUrl = null;
+    }
+
+    const drawHeader = (pageNo) => {
+      // Header band
+      docPdf.setFillColor(245, 246, 248);
+      docPdf.rect(0, 0, pageW, headerH + top, "F");
+
+      // Logo
+      const logoSize = 16;
+      if (logoDataUrl) {
+        docPdf.addImage(logoDataUrl, "PNG", left, top + 6, logoSize, logoSize);
+      }
+
+      // Azienda + Titolo (accanto al logo)
+      const textX = left + (logoDataUrl ? logoSize + 6 : 0);
+
+      docPdf.setFont("helvetica", "bold");
+      docPdf.setFontSize(13);
+      docPdf.setTextColor(25);
+      docPdf.text(COMPANY_NAME, textX, top + 11);
+
+      docPdf.setFontSize(15);
+      docPdf.text(title, textX, top + 19);
+
+      // Meta info (sotto)
+      docPdf.setFont("helvetica", "normal");
+      docPdf.setFontSize(10);
+      docPdf.setTextColor(60);
+      docPdf.text(`${monthLabel}: ${reportMonth}`, left, top + 27);
+      docPdf.text(`${employeeLabel}: ${employeeName}`, left, top + 32);
+
+      // Totale ore box (dx)
+      const boxW = 58;
+      const boxH = 16;
+      const boxX = right - boxW;
+      const boxY = top + 15;
+
+      docPdf.setFillColor(255, 255, 255);
+      docPdf.setDrawColor(140);
+      docPdf.roundedRect(boxX, boxY, boxW, boxH, 2, 2, "FD");
+
+      docPdf.setFont("helvetica", "bold");
+      docPdf.setFontSize(9);
+      docPdf.setTextColor(70);
+      docPdf.text(totalLabel, boxX + 4, boxY + 5);
+
+      docPdf.setFontSize(14);
+      docPdf.setTextColor(20);
+      docPdf.text(`${fmt2(totalHours)} h`, boxX + 4, boxY + 12);
+
+      // Page number (top-right)
+      docPdf.setFont("helvetica", "normal");
+      docPdf.setFontSize(9);
+      docPdf.setTextColor(90);
+      const pageStr = `${pageNo}/${totalPages}`;
+      docPdf.text(pageStr, right - docPdf.getTextWidth(pageStr), top + 9);
+
+      // Divider
+      docPdf.setDrawColor(210);
+      line(left, contentTop - 3, right, contentTop - 3);
+    };
+
+    const drawFooter = (pageNo) => {
+      const y = pageH - margin;
+      docPdf.setDrawColor(210);
+      line(left, y - 8, right, y - 8);
+
+      docPdf.setFont("helvetica", "normal");
+      docPdf.setFontSize(9);
+      docPdf.setTextColor(90);
+      docPdf.text(`${printedLabel}: ${printedAtStr}`, left, y - 3);
+
+      const pageStr = `${pageNo}/${totalPages}`;
+      docPdf.text(pageStr, right - docPdf.getTextWidth(pageStr), y - 3);
+    };
+
+    const drawTableHeader = (y) => {
+      docPdf.setFillColor(235, 235, 235);
+      docPdf.rect(left, y - 6, right - left, 9, "F");
+
+      docPdf.setFont("helvetica", "bold");
+      docPdf.setFontSize(10);
+      docPdf.setTextColor(20);
+
+      docPdf.text(lang === "it" ? "Data" : "Date", xDate + 1, y);
+      docPdf.text(lang === "it" ? "Lavoro" : "Job", xJob + 1, y);
+      docPdf.text(lang === "it" ? "Orari" : "Times", xTimes + 1, y);
+
+      const hLabel = "h";
+      docPdf.text(hLabel, xHours + colHoursW - docPdf.getTextWidth(hLabel) - 1, y);
+
+      docPdf.setDrawColor(200);
+      line(left, y + 2.5, right, y + 2.5);
+
+      return y + 8;
+    };
+
+    // Render
+    let pageNo = 1;
+    let y = contentTop;
+
+    drawHeader(pageNo);
+    y = drawTableHeader(y);
+
+    docPdf.setFont("helvetica", "normal");
+    docPdf.setFontSize(9);
+    docPdf.setTextColor(25);
+
+    let rowIndex = 0;
+
+    for (let i = 0; i < monthRows.length; i++) {
+      const e = monthRows[i];
+
+      const dateTxt = e.date || "—";
+      const jobTxt = jobsById[e.jobId]?.name || "-";
+      const timesTxt = formatTimes(e);
+      const hoursTxt = fmt2(e.hours);
+
+      const jobLines = wrap(jobTxt, colJobW);
+      const timesLines = wrap(timesTxt, colTimesW);
+      const linesCount = Math.max(jobLines.length, timesLines.length, 1);
+      const rowH = 6 + (linesCount - 1) * LINE_STEP;
+
+      // Page break
+      if (y + rowH > contentBottom) {
+        drawFooter(pageNo);
+        docPdf.addPage();
+        pageNo += 1;
+
+        y = contentTop;
+        drawHeader(pageNo);
+        y = drawTableHeader(y);
+
+        docPdf.setFont("helvetica", "normal");
+        docPdf.setFontSize(9);
+        docPdf.setTextColor(25);
+      }
+
+      // Alternate row fill
+      if (rowIndex % 2 === 0) {
+        docPdf.setFillColor(252, 252, 252);
+        docPdf.rect(left, y - 5, right - left, rowH, "F");
+      }
+
+      // Date
+      docPdf.text(trunc(dateTxt, colDateW), xDate + 1, y);
+
+      // Job
+      for (let li = 0; li < jobLines.length; li++) {
+        docPdf.text(trunc(jobLines[li], colJobW), xJob + 1, y + li * LINE_STEP);
+      }
+
+      // Times
+      for (let li = 0; li < timesLines.length; li++) {
+        docPdf.text(trunc(timesLines[li], colTimesW), xTimes + 1, y + li * LINE_STEP);
+      }
+
+      // Hours right aligned
+      docPdf.text(hoursTxt, xHours + colHoursW - docPdf.getTextWidth(hoursTxt) - 1, y);
+
+      // Divider
+      docPdf.setDrawColor(235);
+      line(left, y + rowH - 1.5, right, y + rowH - 1.5);
+
+      y += rowH;
+      rowIndex += 1;
+    }
+
+    // Signature area (last page)
+    const signBlockH = 26;
+    if (y + signBlockH > contentBottom) {
+      drawFooter(pageNo);
+      docPdf.addPage();
+      pageNo += 1;
+      totalPages = Math.max(totalPages, pageNo);
+
+      y = contentTop;
+      drawHeader(pageNo);
+      y = drawTableHeader(y);
+    }
+
+    y += 6;
+    docPdf.setFont("helvetica", "bold");
+    docPdf.setFontSize(10);
+    docPdf.setTextColor(30);
+
+    const boxW = (right - left - 8) / 2;
+    const boxH = 18;
+
+    docPdf.text(signEmp + ":", left, y);
+    docPdf.text(signBoss + ":", left + boxW + 8, y);
+
+    docPdf.setDrawColor(140);
+    docPdf.setFillColor(255, 255, 255);
+    docPdf.roundedRect(left, y + 2, boxW, boxH, 2, 2, "D");
+    docPdf.roundedRect(left + boxW + 8, y + 2, boxW, boxH, 2, 2, "D");
+
+    drawFooter(pageNo);
+
+    docPdf.save(`ore_${reportMonth}.pdf`);
   };
 
   /* ---------- Auth buttons ---------- */
@@ -614,13 +884,13 @@ export default function App() {
   };
 
   const deleteJob = (id) => {
-    if (id === "default") return; // non eliminare default
+    if (id === "default") return;
     const used = entries.some((e) => e.jobId === id);
     if (used) {
       const ok = window.confirm(
         lang === "it"
-          ? "Questo lavoro è usato in alcune giornate. Vuoi eliminarlo lo stesso? (Le giornate resteranno ma il nome lavoro potrebbe sparire)"
-          : "This job is used in some entries. Delete anyway? (Entries stay but job name may be missing)"
+          ? "Questo lavoro è usato in alcune giornate. Vuoi eliminarlo lo stesso?"
+          : "This job is used in some entries. Delete anyway?"
       );
       if (!ok) return;
     }
@@ -660,7 +930,7 @@ export default function App() {
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {/* ✅ selezione mese + PDF Ore */}
+            {/* ✅ Selezione mese + PDF Ore */}
             <select
               value={reportMonth}
               onChange={(e) => setReportMonth(e.target.value)}
@@ -674,7 +944,11 @@ export default function App() {
               ))}
             </select>
 
-            <Button variant="secondary" onClick={exportPDFHours} title={t.pdfHours}>
+            <Button
+              variant="secondary"
+              onClick={() => exportPDFHours()}
+              title={t.pdfHours}
+            >
               {t.pdfHours}
             </Button>
 
@@ -697,7 +971,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Top cards (come prima: qui ancora mostra anche € nell'app, NON nel PDF) */}
+        {/* Top cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginTop: 14 }}>
           <Card>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{t.monthHours}</div>
@@ -742,11 +1016,7 @@ export default function App() {
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.date}</div>
-                  <Input
-                    type="date"
-                    value={draft.date}
-                    onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
-                  />
+                  <Input type="date" value={draft.date} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
                 </div>
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.job}</div>
@@ -795,11 +1065,7 @@ export default function App() {
 
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>{t.notes}</div>
-                  <Input
-                    value={draft.notes}
-                    onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
-                    placeholder={t.notes}
-                  />
+                  <Input value={draft.notes} onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} placeholder={t.notes} />
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -834,7 +1100,7 @@ export default function App() {
                           <td style={{ padding: "10px 0", fontWeight: 900 }}>{e.date}</td>
                           <td style={{ padding: "10px 0" }}>{jobsById[e.jobId]?.name || "-"}</td>
 
-                          {/* ✅ ORARI (uno per riga, più leggibile su mobile) */}
+                          {/* ✅ ORARI (uno per riga, mobile friendly) */}
                           <td style={{ padding: "10px 0" }}>
                             {(e.blocks || []).filter((b) => b?.start && b?.end).length ? (
                               (e.blocks || [])
@@ -870,17 +1136,8 @@ export default function App() {
             <Card>
               <div style={{ fontWeight: 900, marginBottom: 10 }}>{t.newJob}</div>
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr auto" }}>
-                <Input
-                  value={newJob.name}
-                  onChange={(e) => setNewJob((v) => ({ ...v, name: e.target.value }))}
-                  placeholder={t.name}
-                />
-                <Input
-                  type="number"
-                  value={newJob.rate}
-                  onChange={(e) => setNewJob((v) => ({ ...v, rate: e.target.value }))}
-                  placeholder={t.rate}
-                />
+                <Input value={newJob.name} onChange={(e) => setNewJob((v) => ({ ...v, name: e.target.value }))} placeholder={t.name} />
+                <Input type="number" value={newJob.rate} onChange={(e) => setNewJob((v) => ({ ...v, rate: e.target.value }))} placeholder={t.rate} />
                 <Button onClick={addJob}>{t.add}</Button>
               </div>
 
@@ -901,12 +1158,7 @@ export default function App() {
                     }}
                   >
                     <Input value={j.name} onChange={(e) => updateJob(j.id, { name: e.target.value })} placeholder={t.name} />
-                    <Input
-                      type="number"
-                      value={String(j.rate)}
-                      onChange={(e) => updateJob(j.id, { rate: Number(e.target.value || 0) })}
-                      placeholder={t.rate}
-                    />
+                    <Input type="number" value={String(j.rate)} onChange={(e) => updateJob(j.id, { rate: Number(e.target.value || 0) })} placeholder={t.rate} />
                     <Button variant="secondary" onClick={() => setDraft((d) => ({ ...d, jobId: j.id }))}>
                       {t.today}
                     </Button>
