@@ -128,6 +128,15 @@ const diffMinutes = (startHHMM, endHHMM) => {
 };
 const minutesToHours = (min) => min / 60;
 const fmt2 = (n) => (Number.isFinite(n) ? n.toFixed(2) : "0.00");
+const formatHoursHM = (hours) => {
+  if (!Number.isFinite(hours)) return "00:00";
+
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+};
 const monthKey = (iso) => iso.slice(0, 7);
 
 const mondayOfWeek = (isoDate) => {
@@ -641,7 +650,7 @@ export default function App() {
 
       docPdf.setFontSize(14);
       docPdf.setTextColor(20);
-      docPdf.text(`${fmt2(totalHours)} h`, boxX + 4, boxY + 12);
+      docPdf.text(formatHoursHM(totalHours), boxX + 4, boxY + 12);
 
       docPdf.setFont("helvetica", "normal");
       docPdf.setFontSize(9);
@@ -705,7 +714,7 @@ export default function App() {
 
       const dateTxt = formatDateIT(e.date) || "—";
       const timesTxt = formatTimes(e);
-      const hoursTxt = fmt2(e.hours);
+      const hoursTxt = formatHoursHM(e.hours);
 
       const timesLines = wrap(timesTxt, colTimesW);
       const linesCount = Math.max(timesLines.length, 1);
@@ -763,7 +772,7 @@ export default function App() {
     docPdf.setFont("helvetica", "bold");
     docPdf.setFontSize(11);
     docPdf.setTextColor(20);
-    docPdf.text(`${bottomTotalLabel}: ${fmt2(totalHours)} h`, left, y);
+    docPdf.text(`${bottomTotalLabel}: ${formatHoursHM(totalHours)}`, left, y);
 
     y += 6;
     docPdf.setDrawColor(180);
